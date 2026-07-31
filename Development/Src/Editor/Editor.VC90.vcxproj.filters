@@ -1,0 +1,283 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Src">
+      <UniqueIdentifier>{0112b3fc-3005-40fe-959f-788aa116c6c4}</UniqueIdentifier>
+      <Extensions>*.cpp</Extensions>
+    </Filter>
+    <Filter Include="Classes">
+      <UniqueIdentifier>{0c63f516-33bd-43c7-948b-9bb6e65d9fff}</UniqueIdentifier>
+      <Extensions>*.uc</Extensions>
+    </Filter>
+    <Filter Include="Classes\Geometry">
+      <UniqueIdentifier>{3915591d-700f-4d26-b7df-78d9b715d9bc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Classes\Brush Builders">
+      <UniqueIdentifier>{f0dc3eb5-d590-4ba8-bf65-e21700ffeb79}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Inc">
+      <UniqueIdentifier>{14dfbc82-e8e9-4358-9630-922e3108e942}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Src\Editor.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\PlayLevel.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\TTFontImport.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UAnalyzeBuildCommandlet.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UAnalyzeScriptCommandlet.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UBatchExportCommandlet.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UBrushBuilder.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UConformCommandlet.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UContentCommandlets.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UMakeCommandlet.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnBsp.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnContentCookers.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEdCnst.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEdComponents.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEdCsg.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEdDragTools.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEdExp.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEdFact.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEditor.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEditSHM.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEdModes.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEdModeTools.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEdObject.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEdSrv.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEdTran.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnEdViewport.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnGeom.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnGeomModifiers.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnMeshEd.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnParams.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnPrefab.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnScrCom.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnShadow.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnShape.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnSkelMeshEdit.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnStaticMeshEdit.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnTerrainEdit.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnTopics.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnVisi.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UnWidget.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\URebuildCommandlet.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\UStripSourceCommandlet.cpp">
+      <Filter>Src</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Src\EditorPrivate.h">
+      <Filter>Src</Filter>
+    </ClInclude>
+    <ClInclude Include="Src\UnEdTran.h">
+      <Filter>Src</Filter>
+    </ClInclude>
+    <ClInclude Include="Src\UnScrCom.h">
+      <Filter>Src</Filter>
+    </ClInclude>
+    <ClInclude Include="Src\UnTopics.h">
+      <Filter>Src</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\Editor.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\EditorClasses.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\EditorCommandlets.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\Perlin.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\SkelImport.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\UBrushBuilder.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\UnEdComponents.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\UnEdDragTools.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\UnEdModes.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\UnEdModeTools.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\UnEdViewport.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\UnGeom.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+    <ClInclude Include="Inc\UnWidget.h">
+      <Filter>Inc</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Classes\Editor.upkg">
+      <Filter>Classes</Filter>
+    </None>
+    <None Include="Classes\EditorEngine.uc">
+      <Filter>Classes</Filter>
+    </None>
+    <None Include="Classes\EditorViewportInput.uc">
+      <Filter>Classes</Filter>
+    </None>
+    <None Include="Classes\Shape.uc">
+      <Filter>Classes</Filter>
+    </None>
+    <None Include="Classes\GeomModifier.uc">
+      <Filter>Classes\Geometry</Filter>
+    </None>
+    <None Include="Classes\GeomModifier_Create.uc">
+      <Filter>Classes\Geometry</Filter>
+    </None>
+    <None Include="Classes\GeomModifier_Delete.uc">
+      <Filter>Classes\Geometry</Filter>
+    </None>
+    <None Include="Classes\GeomModifier_Edit.uc">
+      <Filter>Classes\Geometry</Filter>
+    </None>
+    <None Include="Classes\GeomModifier_Extrude.uc">
+      <Filter>Classes\Geometry</Filter>
+    </None>
+    <None Include="Classes\GeomModifier_Flip.uc">
+      <Filter>Classes\Geometry</Filter>
+    </None>
+    <None Include="Classes\GeomModifier_Lathe.uc">
+      <Filter>Classes\Geometry</Filter>
+    </None>
+    <None Include="Classes\GeomModifier_Split.uc">
+      <Filter>Classes\Geometry</Filter>
+    </None>
+    <None Include="Classes\GeomModifier_Triangulate.uc">
+      <Filter>Classes\Geometry</Filter>
+    </None>
+    <None Include="Classes\GeomModifier_Turn.uc">
+      <Filter>Classes\Geometry</Filter>
+    </None>
+    <None Include="Classes\GeomModifier_Weld.uc">
+      <Filter>Classes\Geometry</Filter>
+    </None>
+    <None Include="Classes\BrushBuilder.uc">
+      <Filter>Classes\Brush Builders</Filter>
+    </None>
+    <None Include="Classes\ConeBuilder.uc">
+      <Filter>Classes\Brush Builders</Filter>
+    </None>
+    <None Include="Classes\CubeBuilder.uc">
+      <Filter>Classes\Brush Builders</Filter>
+    </None>
+    <None Include="Classes\CurvedStairBuilder.uc">
+      <Filter>Classes\Brush Builders</Filter>
+    </None>
+    <None Include="Classes\CylinderBuilder.uc">
+      <Filter>Classes\Brush Builders</Filter>
+    </None>
+    <None Include="Classes\LinearStairBuilder.uc">
+      <Filter>Classes\Brush Builders</Filter>
+    </None>
+    <None Include="Classes\SheetBuilder.uc">
+      <Filter>Classes\Brush Builders</Filter>
+    </None>
+    <None Include="Classes\SpiralStairBuilder.uc">
+      <Filter>Classes\Brush Builders</Filter>
+    </None>
+    <None Include="Classes\TerrainBuilder.uc">
+      <Filter>Classes\Brush Builders</Filter>
+    </None>
+    <None Include="Classes\TetrahedronBuilder.uc">
+      <Filter>Classes\Brush Builders</Filter>
+    </None>
+    <None Include="Classes\VolumetricBuilder.uc">
+      <Filter>Classes\Brush Builders</Filter>
+    </None>
+  </ItemGroup>
+</Project>

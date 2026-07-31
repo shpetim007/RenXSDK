@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="ReleaseLTCG|Win32">
+      <Configuration>ReleaseLTCG</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectName>Editor</ProjectName>
+    <ProjectGuid>{D701000E-E334-4915-ACE9-D59E50F98A4B}</ProjectGuid>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseLTCG|Win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseOfMfc>false</UseOfMfc>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseOfMfc>false</UseOfMfc>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseOfMfc>false</UseOfMfc>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseLTCG|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="..\BuildConfig\BuildReleaseLTCGProperty.VC90.props" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="..\BuildConfig\BuildDebugProperty.VC90.props" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="..\BuildConfig\BuildReleaseProperty.VC90.props" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>17.0.34714.143</_ProjectFileVersion>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Midl>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <MkTypLibCompatible>true</MkTypLibCompatible>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <TargetEnvironment>Win32</TargetEnvironment>
+      <TypeLibraryName>Src\..\Lib/Editor.tlb</TypeLibraryName>
+    </Midl>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(EditorInclude);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>$(EditorMacro);NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>EditorPrivate.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)$(ProjectName).pch</PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <Culture>0x0409</Culture>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Midl>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <MkTypLibCompatible>true</MkTypLibCompatible>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <TargetEnvironment>Win32</TargetEnvironment>
+      <TypeLibraryName>Src\..\Lib/Editor.tlb</TypeLibraryName>
+    </Midl>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(EditorInclude);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>$(EditorMacro);_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>EditorPrivate.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)$(ProjectName).pch</PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <Culture>0x0409</Culture>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseLTCG|Win32'">
+    <Midl>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <MkTypLibCompatible>true</MkTypLibCompatible>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <TargetEnvironment>Win32</TargetEnvironment>
+      <TypeLibraryName>Src\..\Lib/Editor.tlb</TypeLibraryName>
+    </Midl>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(EditorInclude);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>$(EditorMacro);NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>EditorPrivate.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)$(ProjectName).pch</PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <Culture>0x0409</Culture>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="Src\Editor.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='ReleaseLTCG|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="Src\PlayLevel.cpp" />
+    <ClCompile Include="Src\TTFontImport.cpp" />
+    <ClCompile Include="Src\UAnalyzeBuildCommandlet.cpp" />
+    <ClCompile Include="Src\UAnalyzeScriptCommandlet.cpp" />
+    <ClCompile Include="Src\UBatchExportCommandlet.cpp" />
+    <ClCompile Include="Src\UBrushBuilder.cpp" />
+    <ClCompile Include="Src\UConformCommandlet.cpp" />
+    <ClCompile Include="Src\UContentCommandlets.cpp" />
+    <ClCompile Include="Src\UMakeCommandlet.cpp" />
+    <ClCompile Include="Src\UnBsp.cpp" />
+    <ClCompile Include="Src\UnContentCookers.cpp" />
+    <ClCompile Include="Src\UnEdCnst.cpp" />
+    <ClCompile Include="Src\UnEdComponents.cpp" />
+    <ClCompile Include="Src\UnEdCsg.cpp" />
+    <ClCompile Include="Src\UnEdDragTools.cpp" />
+    <ClCompile Include="Src\UnEdExp.cpp" />
+    <ClCompile Include="Src\UnEdFact.cpp" />
+    <ClCompile Include="Src\UnEditor.cpp" />
+    <ClCompile Include="Src\UnEditSHM.cpp" />
+    <ClCompile Include="Src\UnEdModes.cpp" />
+    <ClCompile Include="Src\UnEdModeTools.cpp" />
+    <ClCompile Include="Src\UnEdObject.cpp" />
+    <ClCompile Include="Src\UnEdSrv.cpp" />
+    <ClCompile Include="Src\UnEdTran.cpp" />
+    <ClCompile Include="Src\UnEdViewport.cpp" />
+    <ClCompile Include="Src\UnGeom.cpp" />
+    <ClCompile Include="Src\UnGeomModifiers.cpp" />
+    <ClCompile Include="Src\UnMeshEd.cpp" />
+    <ClCompile Include="Src\UnParams.cpp" />
+    <ClCompile Include="Src\UnPrefab.cpp" />
+    <ClCompile Include="Src\UnScrCom.cpp" />
+    <ClCompile Include="Src\UnShadow.cpp" />
+    <ClCompile Include="Src\UnShape.cpp" />
+    <ClCompile Include="Src\UnSkelMeshEdit.cpp" />
+    <ClCompile Include="Src\UnStaticMeshEdit.cpp" />
+    <ClCompile Include="Src\UnTerrainEdit.cpp" />
+    <ClCompile Include="Src\UnTopics.cpp" />
+    <ClCompile Include="Src\UnVisi.cpp" />
+    <ClCompile Include="Src\UnWidget.cpp" />
+    <ClCompile Include="Src\URebuildCommandlet.cpp" />
+    <ClCompile Include="Src\UStripSourceCommandlet.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Inc\Editor.h" />
+    <ClInclude Include="Inc\EditorClasses.h" />
+    <ClInclude Include="Inc\EditorCommandlets.h" />
+    <ClInclude Include="Inc\Perlin.h" />
+    <ClInclude Include="Inc\SkelImport.h" />
+    <ClInclude Include="Inc\UBrushBuilder.h" />
+    <ClInclude Include="Inc\UnEdComponents.h" />
+    <ClInclude Include="Inc\UnEdDragTools.h" />
+    <ClInclude Include="Inc\UnEdModes.h" />
+    <ClInclude Include="Inc\UnEdModeTools.h" />
+    <ClInclude Include="Inc\UnEdViewport.h" />
+    <ClInclude Include="Inc\UnGeom.h" />
+    <ClInclude Include="Inc\UnWidget.h" />
+    <ClInclude Include="Src\EditorPrivate.h" />
+    <ClInclude Include="Src\UnEdTran.h" />
+    <ClInclude Include="Src\UnScrCom.h" />
+    <ClInclude Include="Src\UnTopics.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Classes\BrushBuilder.uc" />
+    <None Include="Classes\ConeBuilder.uc" />
+    <None Include="Classes\CubeBuilder.uc" />
+    <None Include="Classes\CurvedStairBuilder.uc" />
+    <None Include="Classes\CylinderBuilder.uc" />
+    <None Include="Classes\Editor.upkg" />
+    <None Include="Classes\EditorEngine.uc" />
+    <None Include="Classes\EditorViewportInput.uc" />
+    <None Include="Classes\GeomModifier.uc" />
+    <None Include="Classes\GeomModifier_Create.uc" />
+    <None Include="Classes\GeomModifier_Delete.uc" />
+    <None Include="Classes\GeomModifier_Edit.uc" />
+    <None Include="Classes\GeomModifier_Extrude.uc" />
+    <None Include="Classes\GeomModifier_Flip.uc" />
+    <None Include="Classes\GeomModifier_Lathe.uc" />
+    <None Include="Classes\GeomModifier_Split.uc" />
+    <None Include="Classes\GeomModifier_Triangulate.uc" />
+    <None Include="Classes\GeomModifier_Turn.uc" />
+    <None Include="Classes\GeomModifier_Weld.uc" />
+    <None Include="Classes\LinearStairBuilder.uc" />
+    <None Include="Classes\Shape.uc" />
+    <None Include="Classes\SheetBuilder.uc" />
+    <None Include="Classes\SpiralStairBuilder.uc" />
+    <None Include="Classes\TerrainBuilder.uc" />
+    <None Include="Classes\TetrahedronBuilder.uc" />
+    <None Include="Classes\VolumetricBuilder.uc" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

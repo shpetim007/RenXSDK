@@ -1,0 +1,84 @@
+class Rx_StatModifierInfo extends Object; //Buffs/Debuffs/Special functions
+
+//Buff/Debuff modifiers//
+
+var float SpeedModifier; 
+
+//Weapons
+var float DamageBoostMod; 
+var float RateOfFireMod;
+var float ReloadSpeedMod;
+
+//Survivablity
+var float DamageResistanceMod;
+var float RegenerationMod;
+
+//Other vars
+var float Mod_Length; //Length of time to modify stats 
+var string ModificationName; 
+
+var LinearColor EffectColor;
+var float		EffectOpacity;
+var float		EffectInflation; 
+var byte		EffectPriority; //Lower is higher priority 
+
+var bool		bAffectInfantry; 
+var bool		bAffectVehicles; 
+
+var MaterialInstanceConstant PawnMIC; //MIC to use for infantry pawns affected by this. Vehicles use a different overlay system
+
+//Vignette effect
+var bool bUseVignette; //IF we affect the HUD vignette (The one that's used for taking damage and whatnot)
+var int  VignetteIntensity; 
+
+var class<DamageType> DmgType;
+
+//Can we stack durations for this
+var bool bStackable;
+var bool bEffectStackable;
+
+var SoundCue AcquisitionSound;
+
+//static function ProcessSpecial(); //Processed if it contains anything
+
+static function bool bAffectsWeapons() //Should this modify what our weapon looks like? 
+{
+	return default.DamageBoostMod != 0 || default.RateOfFireMod != 0 || default.ReloadSpeedMod != 0 ;
+}
+
+DefaultProperties
+{
+	//Buff/Debuff modifiers//
+	SpeedModifier 	= 0.0 //*X Higher = spood beast
+
+	//Weapons
+	DamageBoostMod 	= 0.0  //*X Higher is faster
+	RateOfFireMod 	= 0.0 //*X Higher = faster
+	ReloadSpeedMod 	= 0.0 //*X Higher is faster
+
+	//Survivablity
+	DamageResistanceMod = 0.0 //*X (Yes, higher is MORE damage resistance)
+	RegenerationMod 	= 0.0  //+X
+
+	//Modifier stats
+	Mod_Length = 60.0
+	ModificationName = "Default Name"
+	bStackable = true
+	bEffectStackable = false
+
+	EffectColor		= (R=1.0,G=1.0,B=1.0,A=10.0)
+	EffectOpacity	= 1.0
+	EffectInflation	= 1.0
+	EffectPriority	= 255
+
+	bAffectInfantry = true
+	bAffectVehicles = true 
+
+	DmgType = none 
+	
+	PawnMIC = MaterialInstanceConstant'RenX_AssetBase.Stealth.MI_PowerUp_Main'
+	
+	VignetteIntensity = 50 //Standard 
+	
+	AcquisitionSound = SoundCue'Rx_Pickups.Sounds.SC_Pickup_Health'
+}

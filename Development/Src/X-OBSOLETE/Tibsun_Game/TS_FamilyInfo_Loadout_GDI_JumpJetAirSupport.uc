@@ -1,0 +1,1 @@
+class TS_FamilyInfo_Loadout_GDI_JumpJetAirSupport extends TS_FamilyInfo_Loadout_GDI_JumpJet;

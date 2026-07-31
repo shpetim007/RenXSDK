@@ -1,0 +1,1183 @@
+/*********************************************************
+*
+* File: Rx_Vehicle_StealthTank.uc
+* Author: Totem Arts Team
+* Project: Totem Arts UDK <www.totemarts.games>
+*
+* Desc:
+*
+*
+* ConfigFile:
+*
+*********************************************************
+*
+*********************************************************/
+class Rx_Vehicle_StealthTank extends Rx_Vehicle_Treaded
+	implements (RxIfc_Stealth)
+    placeable;
+
+//================================================================
+// Stealth-related variables
+//================================================================
+var protected float                    TimeStealthDelay;    // seconds we need to stay without action to get stealthed
+var protected float                    TimeLastAction;      // time(stamp) when last action was performed
+var protected float                    PawnDetectionModifier; 
+var protected float                    VehicleDetectionModifier;
+var protected float                    CurrentMaxNoticeDistance;
+var() float                            LowHpMult;           // HealthMax * LowHpMult is the value for LowHP damage use
+var int                                EMPFieldCount;
+
+
+
+//================================================================
+// Mat/Mesh-related variables
+//================================================================
+var protected MaterialInstanceConstant MICDestTrack;        // MIC for destroyed tracks
+var protected MaterialInstanceConstant MICDestroyed;        // MIC for destroyed main
+var protected MaterialInstanceConstant MICTrack;            // MIC for Tracks
+var protected MaterialInstanceConstant MICTrackStealthed;   // MIC for Tracks
+var protected MaterialInstanceConstant MICStealthed;        // MIC for Stealthed status
+var protected MaterialInstanceConstant MICNormal;           // MIC for noramal use
+var protected MaterialInterface        MatTrackStealthed;   // Mat for stealthed
+var protected MaterialInterface        MatStealthed;        // Mat for stealthed
+var protected MaterialInterface        MatNormal;           // Mat for normal use
+var protected bool                     bCreated;
+var protected bool                     bStealthMatInitialized;
+var protected bool					   bIsInvisible;
+var private float 					   StealthVisibilityDistance;	// Distance at wich enemys start to see an SBH	
+var private float 					   BeenshotStealthVisibilityModifier;		
+var private float 				       MaxStealthVisibility;		// Max decloakvalue for when enemys get close to an SBH	
+var private int 					   LastHealthBeenShot;
+
+var bool			   bHasCachedOverlay; 
+var LinearColor		   CachedOverlayColour; //We switch a lot of materials as an SBH.. remember our modifier overlay till we don't need it
+var bool         bIsReducingTireGrip;
+
+// ERASE:
+//var float Time1, Time2;
+
+
+//================================================================
+// state-related variables
+//================================================================
+var repnotify name                     CurrentState;
+var protected PlayerController         LocalPC;
+
+///////////////////////////////////////////////
+//Veterancy
+//////////////////////////////////////////////
+var float Vet_StealthDelayMod[10]; //Too specific to this one unit
+
+
+//================================================================
+// replication
+//================================================================
+replication {
+	if ((bNetDirty && Role == Role_Authority) || (bNetInitial && Role == Role_Authority))
+		CurrentState, bIsInvisible;
+}
+
+simulated function ReplicatedEvent(name VarName) {
+	if (VarName == 'CurrentState') {
+      	ClientAdjustState();
+	}
+	else {
+		super.ReplicatedEvent(VarName);
+	}
+}
+
+simulated function PostBeginPlay()
+{
+   super.PostBeginPlay();
+}
+
+function FrontalCollisionGripReductionTimer()
+{
+  local int i;
+  local bool bAllWheelsOnGround;
+  local bool bWheelInAirLeftSide;
+  local bool bWheelInAirRightSide;
+  
+  bAllWheelsOnGround = true;  
+  if(!bFrontalCollision)
+  { 
+      for(i=0; i<Wheels.length; i++)
+      {
+        if(UDKVehicleWheel(Wheels[i]) != None)
+        {
+          if(!Wheels[i].bWheelOnGround) 
+          {
+            bAllWheelsOnGround = false;
+            if(Wheels[i].EWheelSide.SIDE_Left == Wheels[i].Side)
+              bWheelInAirLeftSide = true;
+            else
+              bWheelInAirRightSide = true;
+          }   
+        }
+      }
+      if(bWheelInAirLeftSide && bWheelInAirRightSide)
+      {
+          //(bWheelInAirLeftSide@bWheelInAirRightSide);
+          for(i=0; i<Wheels.length; i++)
+          {
+            if(UDKVehicleWheel(Wheels[i]) != None)
+            {     
+               Wheels[i].LongSlipFactor = 0.85;
+                //("wheel"@i@"WheelOnGround"@Wheels[i].bWheelOnGround@"bIsSquealing"@Wheels[i].bIsSquealing@"SpinVel"@Wheels[i].SpinVel@"Side"@Wheels[i].Side@"ContactForce"@Wheels[i].ContactForce@"ChassisTorque"@Wheels[i].ChassisTorque@"LongImpulse"@Wheels[i].LongImpulse);
+            }
+          }
+          bIsReducingTireGrip = true;
+          bCanResetSlip = false;
+          SetTimer(4.0, false, 'canResetSlipTimer'); 
+      }
+  } 
+  else if(bFrontalCollision && !bIsReducingFrontalCollisionGrip)
+  {
+    for(i=0; i<Wheels.length; i++)
+    {
+      if(UDKVehicleWheel(Wheels[i]) != None)
+      {
+        Wheels[i].LongSlipFactor = 0.85;
+      }
+    }
+    bIsReducingFrontalCollisionGrip = true;
+    bCanResetSlip = false;
+    SetTimer(1.0, false, 'canResetSlipTimer'); 
+  }
+
+  
+  if(Throttle == 0.0 && bIsReducingFrontalCollisionGrip)
+    bCanResetSlip = true;
+  
+  if((!bFrontalCollision && bIsReducingFrontalCollisionGrip && !bIsReducingTireGrip && bCanResetSlip) ||  (bIsReducingTireGrip && (bAllWheelsOnGround || bCanResetSlip))) 
+  {
+      for(i=0; i<Wheels.length; i++)
+      {
+        if(UDKVehicleWheel(Wheels[i]) != None)
+        {
+          Wheels[i].LongSlipFactor = Wheels[i].default.LongSlipFactor;
+        }
+      }
+      //("resetting slip");
+      bIsReducingFrontalCollisionGrip = false;
+      bIsReducingTireGrip = false;
+  }
+
+}
+
+
+//================================================================
+// General functions
+//================================================================
+simulated function ClientAdjustState() {
+   GotoState(CurrentState);
+}
+function ChangeState (name newState) {
+   
+   //Inject to handle overlay caching
+   if(NewState != 'Stealthed') 
+   {
+	   if(bHasCachedOverlay) SetOverlay(CachedOverlayColour); 
+		else
+		ClearOverlay(); 
+   }
+   
+   CurrentState = NewState;
+   GotoState(newState);
+}
+
+simulated function BlowupVehicle() {
+   Mesh.SetMaterial(0, MICDestroyed);
+   Mesh.SetMaterial(1, MICDestTrack);
+   Mesh.SetMaterial(2, MICDestTrack);
+   DynamicLightEnvironmentComponent(Mesh.LightEnvironment).bCastShadows = true;
+   UpdateShadowSettings(!class'Engine'.static.IsSplitScreen() && class'UTPlayerController'.Default.PawnShadowMode == SHADOW_All);
+   super.BlowupVehicle();
+}
+
+//================================================================
+// Stealth-related functions (and states)
+//================================================================
+
+simulated function SetMovementEffect(int SeatIndex, bool bSetActive, optional UTPawn UTP)
+{
+	if (IsInState('Stealthed') || IsInState('BeenShot'))
+	   super.SetMovementEffect(SeatIndex, false);
+	else
+	   super.SetMovementEffect(SeatIndex, bSetActive, UTP);
+}
+
+function EnteredEMPField(Rx_EMPField EMPCausingActor)
+{
+	if (EMPFieldCount++ == 0 && !bEMPd)
+	{
+		if (!IsInState('LowHP'))
+			ChangeState('WaitForSt');
+	}
+}
+
+function LeftEMPField(Rx_EMPField EMPCausingActor)
+{
+	--EMPFieldCount;
+}
+
+/* =============
+ * state Idle - when the vehicle was created or left and
+ * health > healthmax*LowHpMult else state LowHP is used
+ */
+auto state Idle
+{
+
+   /*
+    * starts up some things like the MIC
+    */
+   simulated function BeginState(name PreviousStateName) // TODO: check for server usage! -> move Client-Only!
+   {
+      //`Log("============ WE ARE IN Idle ===============");
+      if (!bCreated) { // create the MICs and get a reference to the used Mat
+         MICStealthed = new(outer) class'MaterialInstanceConstant';
+         MICStealthed.SetParent(MatStealthed);
+         
+    	 MICTrackStealthed = new(outer) class'MaterialInstanceConstant';
+		 MICTrackStealthed.SetParent(MatTrackStealthed);
+         
+         MICNormal = MaterialInstanceConstant(Mesh.GetMaterial(0));
+         bCreated = true;
+         if (WorldInfo.NetMode != NM_DedicatedServer) {
+            foreach LocalPlayerControllers(class'PlayerController', LocalPC) {
+               break;
+            }
+         }         
+      }
+
+	  DynamicLightEnvironmentComponent(Mesh.LightEnvironment).bCastShadows = true;
+	  UpdateShadowSettings(true);
+	    
+	  UpdateStealthAnimParam(0.0f); 
+   }
+
+   simulated function bool DriverEnter(Pawn P)
+   {
+      ChangeState('WaitForSt');
+      return super.DriverEnter(P);
+   }
+
+   simulated function TakeDamage(int Damage, Controller EventInstigator, vector HitLocation, vector Momentum, class<DamageType> DamageType, optional TraceHitInfo HitInfo, optional Actor DamageCauser)
+   {
+      Super.TakeDamage(Damage, EventInstigator, HitLocation, Momentum, DamageType, HitInfo, DamageCauser);
+      if (Health <= HealthMax*LowHpMult) {
+         ChangeState('LowHP');
+      }
+   }
+
+}
+
+/* =============
+ * state WaitForSt - all the time checks are performed here
+ * and the main decision point for getting stealthed
+ */
+simulated state WaitForSt // also called driving
+{
+
+   /*
+    * start up state
+    */
+   simulated function BeginState(name PreviousStateName)
+   {
+      //`Log("============ WE ARE IN WaitForSt ===============");
+      // here we need to set to half TODO!
+      DynamicLightEnvironmentComponent(Mesh.LightEnvironment).bCastShadows = true;
+      UpdateShadowSettings(true);
+      TimeLastAction = WorldInfo.TimeSeconds;
+      // start the check for going to st state
+      SetTimer(0.5f, true, 'StWait');
+   }
+
+   simulated function StWait () {
+	  if( EMPFieldCount > 0 )
+   	  {
+   	  	 TimeLastAction = WorldInfo.TimeSeconds;
+   	  	 return;
+   	  }
+      if (WorldInfo.TimeSeconds - TimeLastAction >= (TimeStealthDelay-Vet_StealthDelayMod[VRank] )) {
+ 	  	  ChangeState('PlayStealthAnim');
+      }
+   }
+
+   simulated function bool DriverLeave(bool bForceLeave)
+   {
+      ChangeState('Idle');
+      return Super.DriverLeave(bForceLeave);
+   }
+
+   simulated function TakeDamage(int Damage, Controller EventInstigator, vector HitLocation, vector Momentum, class<DamageType> DamageType, optional TraceHitInfo HitInfo, optional Actor DamageCauser)
+   {
+      Super.TakeDamage(Damage, EventInstigator, HitLocation, Momentum, DamageType, HitInfo, DamageCauser);
+      if (Health <= HealthMax*LowHpMult) {
+         ChangeState('LowHP');
+      }
+   }
+
+   simulated function VehicleWeaponFired(bool bViaReplication, vector HitLocation, int SeatIndex)
+   {
+      TimeLastAction = WorldInfo.TimeSeconds;
+      super.VehicleWeaponFired(bViaReplication, HitLocation, SeatIndex);
+   }
+
+   /*
+    * clean up state
+    */
+   simulated function EndState(Name NextStateName)
+   {
+      ClearTimer('StWait');
+   }
+}
+
+/* =============
+ * state PlayStealthAnim - state where we just play the
+ * animatuon to go to the stealthed state
+ *
+ */
+simulated state PlayStealthAnim
+{
+   /*
+    * start up state
+    */
+   simulated function BeginState(name PreviousStateName)
+   {
+      //`Log("============ WE ARE IN PlayStealthAnim ===============");
+      // FIXME: DO NOT PLAY THIS ON THE SERVER! (find a way to fix that)
+      FirstVanish();
+   }
+
+   simulated function FirstVanish() {
+
+      // TODO: what about the mesh overlay?!
+
+      if (WorldInfo.NetMode != NM_DedicatedServer)
+      {
+      	Mesh.SetMaterial(0, MICStealthed);
+      	Mesh.SetMaterial(1, MICTrackStealthed);
+      	Mesh.SetMaterial(2, MICTrackStealthed);
+		LeftTreadMaterialInstance = Mesh.CreateAndSetMaterialInstanceConstant(LeftTeadIndex);
+		RightTreadMaterialInstance = Mesh.CreateAndSetMaterialInstanceConstant(RightTreadIndex);      	
+      }
+      UpdateStealthAnimParam(0.0f);
+      ChangeVisibilityToCloaked();
+      bStealthMatInitialized = true;
+      Settimer (0.025f, true, 'PlayVanish');
+      Settimer (2.5f, false, 'SwitchToStealthedState');     
+      
+   }
+   
+   simulated function SwitchToStealthedState() {
+	    ChangeState('Stealthed');
+   }
+
+   simulated function PlayVanish() {
+      local float F;
+      MICStealthed.GetScalarParameterValue ('Stealth_Animation', F);
+      if (F < 1.0f) {
+         F += 0.01f;
+         UpdateStealthAnimParam(F);
+      } else {
+         ClearTimer('PlayVanish');
+      }
+   }
+
+   simulated function TakeDamage(int Damage, Controller EventInstigator, vector HitLocation, vector Momentum, class<DamageType> DamageType, optional TraceHitInfo HitInfo, optional Actor DamageCauser)
+   {
+      Super.TakeDamage(Damage, EventInstigator, HitLocation, Momentum, DamageType, HitInfo, DamageCauser);
+      if (Health <= HealthMax*LowHpMult) {
+         ChangeState('LowHP');
+      }
+      else
+      {
+         if(EventInstigator != None && GetTeamNum() != EventInstigator.GetTeamNum())
+         	ChangeState('BeenShot');
+      }
+   }
+
+   simulated function VehicleWeaponFired(bool bViaReplication, vector HitLocation, int SeatIndex)
+   {
+      ChangeState('WaitForSt');
+      super.VehicleWeaponFired(bViaReplication, HitLocation, SeatIndex);
+   }
+
+   simulated function bool DriverLeave(bool bForceLeave)
+   {
+      ChangeState('Idle');
+      return Super.DriverLeave(bForceLeave);
+   }
+
+   /*
+    * clean up state
+    */
+   simulated function EndState(Name NextStateName)
+   {
+      ClearTimer('PlayVanish');
+      ClearTimer('SwitchToStealthedState');
+      if (NextStateName != 'Stealthed' && NextStateName != 'BeenShot') {
+      	 SetTimer(0.025, true, 'DeCloak');      	 
+      } else {
+      	 UpdateStealthAnimParam(1.0f);
+      }
+   }
+
+}
+
+simulated function DeCloak() {
+  	local float F;
+  	MICStealthed.GetScalarParameterValue ('Stealth_Animation', F);
+  	if (F > 0.0f) {
+     	F -= 0.083f;
+     	if(F < 0) {
+     		F = 0;
+     	}
+     	UpdateStealthAnimParam(F);
+    } else {
+        Mesh.SetMaterial(0, MICNormal);
+        Mesh.SetMaterial(1, MICTrack);
+        Mesh.SetMaterial(2, MICTrack); 
+		
+		
+		LeftTreadMaterialInstance = Mesh.CreateAndSetMaterialInstanceConstant(LeftTeadIndex);
+		RightTreadMaterialInstance = Mesh.CreateAndSetMaterialInstanceConstant(RightTreadIndex);
+		
+        UpdateStealthVisibilityParam(0.0f);
+        UpdateNewStealthVisibilityParam(1.0f);
+		
+		if(bHasCachedOverlay) SetOverlay(CachedOverlayColour); 
+		else
+		ClearOverlay();
+	
+		ClearTimer('DeCloak');	
+		ClearTimer('SwitchToStealthedState');	
+		ClearTimer('UpdateStealthBasedOnDistanceTimer');
+	}
+}
+
+simulated function ChangeVisibilityToCloaked() {
+
+	if(WorldInfo.NetMode != NM_DedicatedServer && LocalPC == None) {
+        foreach LocalPlayerControllers(class'PlayerController', LocalPC) {
+           break;
+        }
+	}
+    if (WorldInfo.NetMode != NM_DedicatedServer) { 
+        if (LocalPC.GetTeamNum() == self.GetTeamNum()) {
+        	UpdateStealthVisibilityParam(0.0f);
+        } else {
+        	if(Vehicle(LocalPC.Pawn) != None) {
+        		ChangeStealthVisibilityParam(false);	
+        	} else {
+        		ChangeStealthVisibilityParam(true);	
+        	}
+        }
+     }
+}
+
+
+/* =============
+ * state Stealthed - main st state
+ *
+ */
+simulated state Stealthed
+{
+   simulated function setupStealthed ()
+   {
+      if (WorldInfo.NetMode != NM_DedicatedServer)
+      {
+         Mesh.SetMaterial(0, MICStealthed);
+         Mesh.SetMaterial(1, MICTrackStealthed);
+         Mesh.SetMaterial(2, MICTrackStealthed);
+		 LeftTreadMaterialInstance = Mesh.CreateAndSetMaterialInstanceConstant(LeftTeadIndex);
+		 RightTreadMaterialInstance = Mesh.CreateAndSetMaterialInstanceConstant(RightTreadIndex);               
+      }
+   }
+
+   /*
+    * start up state
+    */
+   simulated function BeginState(name PreviousStateName)
+   {
+      bIsInvisible = true;
+      if(!bStealthMatInitialized) {
+        Mesh.SetMaterial(0, MICStealthed);
+        Mesh.SetMaterial(1, MICTrackStealthed);
+        Mesh.SetMaterial(2, MICTrackStealthed);
+		LeftTreadMaterialInstance = Mesh.CreateAndSetMaterialInstanceConstant(LeftTeadIndex);
+		RightTreadMaterialInstance = Mesh.CreateAndSetMaterialInstanceConstant(RightTreadIndex);              
+    	UpdateStealthAnimParam(1.0f);
+    	UpdateStealthVisibilityParam(0.001f);
+      	setTimer(2.0f, false, 'ChangeVisibilityToCloaked');
+      }
+      
+      SetMovementEffect(0,false);
+      DisableDamageSmoke();
+      UpdateShadowSettings(true);
+      // for other playser that recently joined but ST was stealthed
+      if (SpawnTime <= 1.0f)
+      {
+         setupStealthed();
+      }
+
+      DynamicLightEnvironmentComponent(Mesh.LightEnvironment).bCastShadows = false;
+      UpdateShadowSettings(false);
+      
+      if(Role == Role_SimulatedProxy) {
+      	  EngineSound.VolumeMultiplier = 0.3;
+      	  //Wheels[0].WheelParticleSystem.
+      }
+      
+       if (WorldInfo.NetMode != NM_DedicatedServer && LocalPC.GetTeamNum() != self.GetTeamNum())
+      	SetTimer(0.1, true, 'UpdateStealthBasedOnDistanceTimer');
+	
+		if(ROLE==ROLE_Authority) Rx_PRI(PlayerReplicationInfo).SetTargetEliminated(100); //Restealthed. Remove target status
+
+	
+   }
+
+   simulated function bool DriverLeave(bool bForceLeave)
+   {
+      ChangeState('Idle');
+      return Super.DriverLeave(bForceLeave);
+   }
+
+   simulated function VehicleWeaponFired(bool bViaReplication, vector HitLocation, int SeatIndex)
+   {
+      ChangeState('WaitForSt');
+      super.VehicleWeaponFired(bViaReplication, HitLocation, SeatIndex);
+   }
+
+   simulated function TakeDamage(int Damage, Controller EventInstigator, vector HitLocation, vector Momentum, class<DamageType> DamageType, optional TraceHitInfo HitInfo, optional Actor DamageCauser)
+   {
+      Super.TakeDamage(Damage, EventInstigator, HitLocation, Momentum, DamageType, HitInfo, DamageCauser);
+      if (Health <= HealthMax*LowHpMult)
+      {
+         ChangeState('LowHP');
+      }
+      else
+      {
+         if(EventInstigator != None && GetTeamNum() != EventInstigator.GetTeamNum())
+         	ChangeState('BeenShot');
+      }
+   }
+
+   /*
+    * clean up state
+    */
+   simulated function EndState(Name NextStateName)
+   {
+      bIsInvisible = false;
+      // need same mat in BeenShot
+      if (NextStateName != 'BeenShot')
+      {
+         SetTimer(0.025, true, 'DeCloak');
+         CheckDamageSmoke();
+         UpdateShadowSettings(true);
+         SetMovementEffect(0,true);
+      }
+      if(Role == Role_SimulatedProxy) {
+      	  EngineSound.VolumeMultiplier = 1.0;		
+      }      
+   }
+
+   simulated function PlayCollisionEffect(vector Loc, vector rot)
+   {
+      return; 
+   }
+}
+
+simulated function UpdateStealthBasedOnDistanceTimer()
+{	
+	local float StealthValue;
+	
+	if(!IsInState('Stealthed') && !IsInState('BeenShot'))
+		return;
+		
+	if(LocalPC.Pawn == None)
+	{
+		if(LocalPC.GetTeamNum() != GetTeamNum()) {
+			StealthValue = 0.0; 
+		}
+		else{
+			StealthValue = 1.0; 
+		}
+			
+	return;		
+	}
+			
+	
+	if(IsInState('BeenShot') && (Health != LastHealthBeenShot))
+	{
+		SetTimer(0.6, false, 'ChangeToPlayStealthAnimState');
+		BeenshotStealthVisibilityModifier = default.BeenshotStealthVisibilityModifier;	
+		LastHealthBeenShot = Health;
+	}
+	
+	StealthValue = VSize(LocalPC.Pawn.location - location);
+	
+	//(StealthValue);
+	
+	// 1 = completely visible
+	
+	if(Rx_Pawn(LocalPC.Pawn) != none)
+		StealthValue = 1.2 - StealthValue/(StealthVisibilityDistance*PawnDetectionModifier);
+	else
+		StealthValue = 1.2 - StealthValue/(StealthVisibilityDistance*VehicleDetectionModifier);
+	
+	
+	if(StealthValue < 0.0)
+		StealthValue = 0.0;
+		
+	if(BeenshotStealthVisibilityModifier > 0.0f)
+	{	
+		BeenshotStealthVisibilityModifier -= 0.2;
+		if(StealthValue + BeenshotStealthVisibilityModifier > StealthValue)
+			StealthValue += BeenshotStealthVisibilityModifier;	
+	}		
+	
+	if(BeenshotStealthVisibilityModifier <= 0.0)
+	{
+		if(StealthValue > MaxStealthVisibility && BeenshotStealthVisibilityModifier <= 0.0)
+		{
+			StealthValue = MaxStealthVisibility;	 		
+		}
+	}	
+	
+	if(StealthValue > 1.0)
+		StealthValue = 1.0;		
+		
+	if(StealthValue < 0.0)
+		StealthValue = 0.0;	
+	
+	//(StealthValue);
+	
+	UpdateNewStealthVisibilityParam(StealthValue);
+}
+
+/* =============
+ * state LowHP - idle state if health <= healthmax*0.1
+ *
+ */
+simulated state LowHP
+{
+
+   simulated function BeginState(name PreviousStateName)
+   {
+      //`Log("============ WE ARE IN LowHP ===============");
+      if (bDriving){
+      	 UpdateStealthAnimParam(0.1f);
+      }
+      else {
+      	UpdateStealthAnimParam(0.0f);
+      }
+   }
+
+   function bool HealDamage(int Amount, Controller Healer, class<DamageType> DamageType)
+   {
+      if (Health + Amount > HealthMax*LowHpMult && !bDriving)
+         ChangeState('Idle');
+		else if (Health + Amount > HealthMax*LowHpMult)
+			ChangeState('WaitForSt');
+
+      return Super.HealDamage(Amount, Healer, DamageType);
+   }
+
+}
+
+/* =============
+ * state BeenShot - st been shot and is visible to the enemy
+ *
+ */
+simulated state BeenShot
+{
+   simulated function BeginState(name PreviousStateName)
+   {
+      if (WorldInfo.NetMode != NM_DedicatedServer && LocalPC.GetTeamNum() != self.GetTeamNum()) {
+      	//SetTimer(0.05f, true, 'PlayApper');
+      }
+      SetTimer(0.6, false, 'ChangeToPlayStealthAnimState');
+      BeenshotStealthVisibilityModifier = default.BeenshotStealthVisibilityModifier;
+      LastHealthBeenShot = Health;
+   }
+
+   simulated function TakeDamage(int Damage, Controller EventInstigator, vector HitLocation, vector Momentum, class<DamageType> DamageType, optional TraceHitInfo HitInfo, optional Actor DamageCauser)
+   {
+      Super.TakeDamage(Damage, EventInstigator, HitLocation, Momentum, DamageType, HitInfo, DamageCauser);
+      if (Health <= HealthMax*LowHpMult) {
+         ChangeState('LowHP');
+      }
+      else {
+    	if(EventInstigator != None && GetTeamNum() != EventInstigator.GetTeamNum())
+    	{
+      		BeenshotStealthVisibilityModifier = default.BeenshotStealthVisibilityModifier;  
+    		SetTimer(0.6, false, 'ChangeToPlayStealthAnimState');
+    	}
+      }
+   }
+   
+   simulated function ChangeToPlayStealthAnimState() {
+  	 ChangeState('Stealthed');   	
+   }
+
+   simulated function bool DriverLeave(bool bForceLeave)
+   {
+      ChangeState('Idle');
+      return Super.DriverLeave(bForceLeave);
+   }
+
+   simulated function VehicleWeaponFired(bool bViaReplication, vector HitLocation, int SeatIndex)
+   {
+      ChangeState('WaitForSt');
+      super.VehicleWeaponFired(bViaReplication, HitLocation, SeatIndex);
+   }
+
+   /*
+    * clean up
+    */
+   simulated function EndState(Name NextStateName)
+   {
+      // need same mat in BeenShot
+      if (NextStateName != 'Stealthed') {
+         bIsInvisible = false;
+         Mesh.SetMaterial(0, MICNormal);
+         Mesh.SetMaterial(1, MICTrack);
+         Mesh.SetMaterial(2, MICTrack);
+		 LeftTreadMaterialInstance = Mesh.CreateAndSetMaterialInstanceConstant(LeftTeadIndex);
+		 RightTreadMaterialInstance = Mesh.CreateAndSetMaterialInstanceConstant(RightTreadIndex);        
+      }
+      ClearTimer('ChangeToPlayStealthAnimState');
+      BeenshotStealthVisibilityModifier = 0.0;
+   }
+}    
+
+simulated function UpdateStealthAnimParam(float value) {
+	MICStealthed.SetScalarParameterValue('Stealth_Animation', value);	
+	MICTrackStealthed.SetScalarParameterValue('Stealth_Animation', value);	
+}
+
+simulated function UpdateStealthVisibilityParam(float value) {
+	//MICStealthed.SetScalarParameterValue('PixelDepth', value);
+	//MICTrackStealthed.SetScalarParameterValue('PixelDepth', value);	
+}
+
+/** A value of 0 being not visible, and a value of 1 being completely visible. */
+simulated function UpdateNewStealthVisibilityParam(float value) {
+	MICStealthed.SetScalarParameterValue('Stealth_Visibility', value);	
+	MICTrackStealthed.SetScalarParameterValue('Stealth_Visibility', value);	
+}
+
+
+function bool IsInvisible() {
+	return bIsInvisible; // todo: check why this is not sufficient enoguh for bots not seeing me
+}
+
+/**I am a Stealth tank, therefore I am special and causing Yosh headaches at every turn*/ 
+
+/** Jacked the Link gun code, as vehicles already have most of the code for overlays in that*/
+simulated function SetOverlay(LinearColor MatColour)
+{
+	local MaterialInstanceConstant MIC;
+	local int i;
+	
+	ClearOverlay();
+	
+	/*Server doesn't need to concern itself with visuals, and just replicates the colour */
+	if(WorldInfo.NetMode == NM_DedicatedServer || WorldInfo.NetMode == NM_ListenServer) 
+	{
+		VehicleOverlayColour = MatColour; 
+		return; 
+	}
+	
+	CachedOverlayColour = MatColour;
+	bHasCachedOverlay = true; 
+	
+	
+	/*Run client/standalone visual code*/
+	
+	for (i = 0; i < Mesh.Materials.Length || i < Mesh.SkeletalMesh.Materials.Length; i++)
+	{
+		if (i < Mesh.Materials.Length)
+		{
+			MIC = MaterialInstanceConstant(Mesh.Materials[i]);
+		}
+		if (MIC == None)
+		{
+			if (i >= Mesh.Materials.Length || Mesh.Materials[i] == None)
+			{
+				Mesh.SetMaterial(i, Mesh.SkeletalMesh.Materials[i]);
+			}
+			MIC = Mesh.CreateAndSetMaterialInstanceConstant(i);
+		}
+		if (MIC != None)
+		{
+			MIC.SetVectorParameterValue('Veh_OverlayColor', MatColour);
+			MIC.SetScalarParameterValue('Veh_Overlay_Distort_Amount', 0.500000); //Stop being so damn weird
+		}
+	}
+}
+
+/** Just stole the link gun code to avoid reinventing the wheel entirely*/
+simulated function ClearOverlay()
+{
+	local MaterialInstanceConstant mic;
+	local LinearColor Black;
+	local int i;
+
+	/*Server doesn't need to concern itself with visuals, and just replicates the colour */
+	if(WorldInfo.NetMode == NM_DedicatedServer || WorldInfo.NetMode == NM_ListenServer) 
+	{
+		VehicleOverlayColour = Black; 
+		return; 
+	}
+	
+	CachedOverlayColour = Black;
+	bHasCachedOverlay = false; 
+	
+	for (i = 0; i < Mesh.Materials.Length; i++)
+	{
+		MIC = MaterialInstanceConstant(Mesh.Materials[i]);
+		if (MIC != None)
+		{
+			MIC.SetVectorParameterValue('Veh_OverlayColor',Black);
+			MIC.SetScalarParameterValue('Veh_Overlay_Distort_Amount', 0.500000); //Stop being so damn weird
+
+		}
+	}
+}
+     
+	 
+/*Functions shared by all stealth units for the HUD (And maybe for a sensor array or something)*/
+
+simulated function bool GetIsinTargetableState(){
+	return (GetStateName() != 'Stealthed' && GetStateName() != 'BeenShot' && Health > 0); 
+}
+
+simulated function bool GetIsStealthCapable(){
+	return Health > HealthMax*LowHPMult;
+} 
+
+simulated function ChangeStealthVisibilityParam(bool ForOnFoot, optional float PercentMod = 1.0) {
+	if(ForOnFoot) {
+		CurrentMaxNoticeDistance = PawnDetectionModifier*PercentMod; 	
+	} else {
+		CurrentMaxNoticeDistance = VehicleDetectionModifier*PercentMod;
+	}
+}
+
+/*End stealth code */
+
+/*RxIfc_Targetable*/
+simulated function bool GetIsValidLocalTarget(Controller PC) {return PC.GetTeamNum() == GetTeamNum() || GetIsinTargetableState();} //Are we a valid target for our local playercontroller?  (Buildings are always valid to look at (maybe stealthed buildings aren't?))
+
+
+DefaultProperties
+{
+    Begin Object Name=CollisionCylinder
+    CollisionHeight=100.0
+    CollisionRadius=200.0
+    Translation=(X=0.0,Y=0.0,Z=0.0)
+    End Object
+
+    Begin Object Name=SDevFlag
+    SkeletalMesh=None
+    End Object
+
+   	TimeStealthDelay = 4.0f    //  seconds we need to stay without action to get stealthed
+   	LowHpMult = 0.15f           //  HealthMax * LowHpMult is the value for LowHP (damaged) use
+
+	//Higher numbers make Stanks visible sooner 
+	PawnDetectionModifier  = 1.15  //0.00085f   // remember to test this! and anjust similar to CCR
+	VehicleDetectionModifier = 1.0 //0.00085f    // and this
+	
+   	MatStealthed 	  = MaterialInterface'RX_VH_StealthTank.Materials.MI_StealthTank_Cloaked'
+   	MICTrack 		  = MaterialInstanceConstant'RX_VH_StealthTank.Materials.MI_VH_Tracks'
+   	MatTrackStealthed = MaterialInterface'RX_VH_StealthTank.Materials.MI_Treads_Cloaked'
+   	//MICDestroyed = MaterialInstanceConstant'RX_VH_StealthTank.Materials.MI_VH_StealthTank_BO'
+   	//MICDestTrack = MaterialInstanceConstant'RX_VH_StealthTank.Materials.MI_VH_Tracks_BO'	
+
+//========================================================\\
+//************** Vehicle Physics Properties **************\\
+//========================================================\\
+
+
+    Health=400
+    MaxDesireability=0.8
+    MomentumMult=0.7
+    bCanFlip=False
+    bTurnInPlace=True
+    bSeparateTurretFocus=True
+    CameraLag=0.15 //0.25
+	LookForwardDist=250
+    GroundSpeed=300
+    MaxSpeed=1000
+    LeftStickDirDeadZone=0.1
+    TurnTime=18
+    ViewPitchMin=-13000
+    HornIndex=0
+    COMOffset=(x=0.0,y=0.0,z=-30.0)
+    
+    BeenshotStealthVisibilityModifier = 1.0
+	StealthVisibilityDistance = 750 //650
+	MaxStealthVisibility = 0.2
+	
+	SprintTrackTorqueFactorDivident=1.175 //1.125
+
+/************************/
+/*Veterancy Multipliers*/
+/***********************/
+
+	//-X
+	Vet_StealthDelayMod(0) = 0;
+   Vet_StealthDelayMod(1) = 0;
+   Vet_StealthDelayMod(2) = 0;
+	Vet_StealthDelayMod(3) = 1;
+   Vet_StealthDelayMod(4) = 1;
+   Vet_StealthDelayMod(5) = 1; 
+	Vet_StealthDelayMod(6) = 2; 
+   Vet_StealthDelayMod(7) = 2; 
+   Vet_StealthDelayMod(8) = 2; 
+	Vet_StealthDelayMod(9) = 3; 
+
+	/**********************/
+
+  /***********/
+	/*Vehicle Veterancy Block*/
+	/***********/
+
+	//VP Reward : Base VP give on death
+	//HealthMod: +HP for this rank
+	//SprintSpeedMod = Base Sprint Speed multiplied by this
+	//TTFD = Turn Torque Factor (Keeps vehicles from turning too hard when their sprint speed increases)
+
+	//RECRUIT
+	VetRankInfo(0) = (VPReward = 8, HealthMod = 1.0, SprintspeedMod = 1.0, SprintTTFDMod = 0.0) 
+	VetRankInfo(1) = (VPReward = 8, HealthMod = 1.025, SprintspeedMod = 1.0, SprintTTFDMod = 0.0) 
+	VetRankInfo(2) = (VPReward = 8, HealthMod = 1.065, SprintspeedMod = 1.0, SprintTTFDMod = 0.0) 
+
+	//VETERAN
+	VetRankInfo(3) = (VPReward = 10, HealthMod = 1.125, SprintspeedMod = 1.05, SprintTTFDMod = 0.05) 
+	VetRankInfo(4) = (VPReward = 10, HealthMod = 1.15, SprintspeedMod = 1.05, SprintTTFDMod = 0.05) 
+	VetRankInfo(5) = (VPReward = 10, HealthMod = 1.19, SprintspeedMod = 1.05, SprintTTFDMod = 0.05) 
+
+	//ELITE
+	VetRankInfo(6) = (VPReward = 12, HealthMod = 1.25, SprintspeedMod = 1.10, SprintTTFDMod = 0.10) 
+	VetRankInfo(7) = (VPReward = 12, HealthMod = 1.275, SprintspeedMod = 1.10, SprintTTFDMod = 0.10) 
+	VetRankInfo(8) = (VPReward = 12, HealthMod = 1.315, SprintspeedMod = 1.10, SprintTTFDMod = 0.10) 
+
+	//HEROIC
+	VetRankInfo(9) = (VPReward = 16, HealthMod = 1.375, SprintspeedMod = 1.15, SprintTTFDMod = 0.15) 
+	
+	/******************/
+	
+    Begin Object Class=SVehicleSimTank Name=SimObject
+
+        bClampedFrictionModel=true
+
+        WheelSuspensionStiffness=300 //50 //40
+        WheelSuspensionDamping=20.0 //1.5 //1.0
+        WheelSuspensionBias=0.15
+
+//        WheelLongExtremumSlip=0
+//        WheelLongExtremumValue=20
+//        WheelLatExtremumValue=4
+
+        // Longitudinal tire model based on 10% slip ratio peak
+        WheelLongExtremumSlip=0.5
+        WheelLongExtremumValue=2.0
+        WheelLongAsymptoteSlip=2.0
+        WheelLongAsymptoteValue=0.6
+
+        // Lateral tire model based on slip angle (radians)
+           WheelLatExtremumSlip=0.5 //0.35     // 20 degrees
+        WheelLatExtremumValue=4.0
+        WheelLatAsymptoteSlip=1.4     // 80 degrees
+        WheelLatAsymptoteValue=2.0
+
+        ChassisTorqueScale=0.0
+        StopThreshold=20
+        EngineDamping=3.0
+        InsideTrackTorqueFactor=0.35//0.42
+        TurnInPlaceThrottle=0.175
+        TurnMaxGripReduction=0.995 //0.980
+        TurnGripScaleRate=0.8
+        MaxEngineTorque=3000
+    End Object
+    SimObj=SimObject
+    Components.Add(SimObject)
+
+
+//========================================================\\
+//*************** Vehicle Visual Properties **************\\
+//========================================================\\
+
+
+    Begin Object name=SVehicleMesh
+        SkeletalMesh=SkeletalMesh'RX_VH_StealthTank.Mesh.SK_VH_StealthTank'
+        AnimTreeTemplate=AnimTree'RX_VH_StealthTank.Anims.AT_VH_StealthTank'
+        PhysicsAsset=PhysicsAsset'RX_VH_StealthTank.Mesh.SK_VH_StealthTank_Physics'
+    End Object
+
+    DrawScale=1.0
+	
+	SkeletalMeshForPT=SkeletalMesh'RX_VH_StealthTank.Mesh.SK_PTVH_StealthTank'
+
+	VehicleIconTexture=Texture2D'RX_VH_StealthTank.UI.T_VehicleIcon_StealthTank'
+	MinimapIconTexture=Texture2D'RX_VH_StealthTank.UI.T_MinimapIcon_StealthTank'
+
+
+//========================================================\\
+//*********** Vehicle Seats & Weapon Properties **********\\
+//========================================================\\
+
+
+    Seats(0)={(GunClass=class'Rx_Vehicle_StealthTank_Weapon',
+                GunSocket=(TurretFireSocket01,TurretFireSocket02),
+                TurretControls=(TurretPitch,TurretRotate),
+                GunPivotPoints=(MainTurretYaw,MainTurretPitch),
+                bSeatVisible=false,
+                CameraTag=CamView3P,
+                CameraBaseOffset=(Z=-10),
+                CameraOffset=-400,
+                SeatIconPos=(X=0.5,Y=0.33),
+                MuzzleFlashLightClass=class'Rx_Light_Tank_MuzzleFlash'
+                )}
+
+
+//========================================================\\
+//********* Vehicle Material & Effect Properties *********\\
+//========================================================\\
+
+
+    LeftTeadIndex     = 1
+    RightTreadIndex   = 2
+
+    DrivingPhysicalMaterial=none //PhysicalMaterial'RX_VH_StealthTank.Materials.PhysMat_StealthTankDriving'
+    DefaultPhysicalMaterial=PhysicalMaterial'RX_VH_StealthTank.Materials.PhysMat_StealthTank'
+
+    RecoilTriggerTag = "MainGun"
+    VehicleEffects(0)=(EffectStartTag="TurretFireRight",EffectTemplate=ParticleSystem'RX_VH_StealthTank.Effects.P_MuzzleFlash_Missiles',EffectSocket="TurretFireSocket01")
+    VehicleEffects(1)=(EffectStartTag="TurretFireLeft",EffectTemplate=ParticleSystem'RX_VH_StealthTank.Effects.P_MuzzleFlash_Missiles',EffectSocket="TurretFireSocket02")
+    VehicleEffects(2)=(EffectStartTag=DamageSmoke,EffectEndTag=NoDamageSmoke,bRestartRunning=false,EffectTemplate=ParticleSystem'RX_FX_Vehicle.Damage.P_EngineFire',EffectSocket=DamageSmoke01)
+    VehicleEffects(3)=(EffectStartTag=DamageSmoke,EffectEndTag=NoDamageSmoke,bRestartRunning=false,EffectTemplate=ParticleSystem'RX_FX_Vehicle.Damage.P_EngineFire',EffectSocket=DamageSmoke02)
+
+	WheelParticleEffects[0]=(MaterialType=Generic,ParticleTemplate=ParticleSystem'RX_FX_Vehicle.Wheel.P_FX_Wheel_Generic')
+    WheelParticleEffects[1]=(MaterialType=Dirt,ParticleTemplate=ParticleSystem'RX_FX_Vehicle.Wheel.P_FX_Wheel_Dirt_Small')
+	WheelParticleEffects[2]=(MaterialType=Grass,ParticleTemplate=ParticleSystem'RX_FX_Vehicle.Wheel.P_FX_Wheel_Dirt_Small')
+    WheelParticleEffects[3]=(MaterialType=Water,ParticleTemplate=ParticleSystem'RX_FX_Vehicle.Wheel.P_FX_Wheel_Water')
+    WheelParticleEffects[4]=(MaterialType=Snow,ParticleTemplate=ParticleSystem'RX_FX_Vehicle.Wheel.P_FX_Wheel_Snow_Small')
+	WheelParticleEffects[5]=(MaterialType=Concrete,ParticleTemplate=ParticleSystem'RX_FX_Vehicle.Wheel.P_FX_Wheel_Generic')
+	WheelParticleEffects[6]=(MaterialType=Metal,ParticleTemplate=ParticleSystem'RX_FX_Vehicle.Wheel.P_FX_Wheel_Generic')
+	WheelParticleEffects[7]=(MaterialType=Stone,ParticleTemplate=ParticleSystem'RX_FX_Vehicle.Wheel.P_FX_Wheel_Stone')
+	WheelParticleEffects[8]=(MaterialType=WhiteSand,ParticleTemplate=ParticleSystem'RX_FX_Vehicle.Wheel.P_FX_Wheel_WhiteSand_Small')
+	WheelParticleEffects[9]=(MaterialType=YellowSand,ParticleTemplate=ParticleSystem'RX_FX_Vehicle.Wheel.P_FX_Wheel_YellowSand_Small')
+	DefaultWheelPSCTemplate=ParticleSystem'RX_FX_Vehicle.Wheel.P_FX_Wheel_Dirt_Small'
+	
+    BigExplosionTemplates[0]=(Template=ParticleSystem'RX_VH_StealthTank.Effects.P_Explosion_Vehicle')
+    BigExplosionSocket=VH_Death
+	
+	DamageMorphTargets(0)=(InfluenceBone=MT_StealthTank_F,MorphNodeName=MorphNodeW_Front,LinkedMorphNodeName=none,Health=40,DamagePropNames=(Damage1))
+    DamageMorphTargets(1)=(InfluenceBone=MT_StealthTank_L,MorphNodeName=MorphNodeW_Left,LinkedMorphNodeName=none,Health=40,DamagePropNames=(Damage2))
+    DamageMorphTargets(2)=(InfluenceBone=MT_StealthTank_R,MorphNodeName=MorphNodeW_Right,LinkedMorphNodeName=none,Health=40,DamagePropNames=(Damage3))
+    DamageMorphTargets(3)=(InfluenceBone=MT_StealthTank_B,MorphNodeName=MorphNodeW_Rear,LinkedMorphNodeName=none,Health=40,DamagePropNames=(Damage4))
+
+    DamageParamScaleLevels(0)=(DamageParamName=Damage1,Scale=2.0)
+    DamageParamScaleLevels(1)=(DamageParamName=Damage2,Scale=2.0)
+    DamageParamScaleLevels(2)=(DamageParamName=Damage3,Scale=2.0)
+    DamageParamScaleLevels(3)=(DamageParamName=Damage4,Scale=0.1)
+
+//========================================================\\
+//*************** Vehicle Audio Properties ***************\\
+//========================================================\\
+
+
+    Begin Object Class=AudioComponent Name=ScorpionEngineSound
+        SoundCue=SoundCue'RX_VH_StealthTank.Sounds.SC_StealthTank_Idle'
+    End Object
+    EngineSound=ScorpionEngineSound
+    Components.Add(ScorpionEngineSound);
+
+    EnterVehicleSound=SoundCue'RX_VH_StealthTank.Sounds.SC_StealthTank_Start'
+    ExitVehicleSound=SoundCue'RX_VH_StealthTank.Sounds.SC_StealthTank_Stop'
+	
+   
+//========================================================\\
+//******** Vehicle Wheels & Suspension Properties ********\\
+//========================================================\\
+
+    Begin Object Class=Rx_Vehicle_StealthTank_Wheel Name=FRMWheel
+        BoneName="Wheel_FRM"
+        SkelControlName="Wheel_FRM_Cont"
+        Side=SIDE_Right
+        VPushLongSlip = 0.15
+    End Object
+    Wheels(0)=FRMWheel
+
+    Begin Object class=Rx_Vehicle_StealthTank_Wheel Name=FRBWheel
+        BoneName="Wheel_FRB"
+        SkelControlName="Wheel_FRB_Cont"
+        Side=SIDE_Right
+    End Object
+    Wheels(1)=FRBWheel
+
+    Begin Object class=Rx_Vehicle_StealthTank_Wheel Name=FLMWheel
+        BoneName="Wheel_FLM"
+        SkelControlName="Wheel_FLM_Cont"
+        Side=SIDE_Left
+        VPushLongSlip = 0.15
+    End Object
+    Wheels(2)=FLMWheel
+
+    Begin Object class=Rx_Vehicle_StealthTank_Wheel Name=FLBWheel
+        BoneName="Wheel_FLB"
+        SkelControlName="Wheel_FLB_Cont"
+        Side=SIDE_Left
+    End Object
+    Wheels(3)=FLBWheel
+
+    Begin Object class=Rx_Vehicle_StealthTank_Wheel Name=RRMWheel
+         BoneName="Wheel_RRM"
+        SkelControlName="Wheel_RRM_Cont"
+        Side=SIDE_Right
+    End Object
+    Wheels(4)=RRMWheel
+
+    Begin Object class=Rx_Vehicle_StealthTank_Wheel Name=RRBWheel
+        BoneName="Wheel_RRB"
+        SkelControlName="Wheel_RRB_Cont"
+        Side=SIDE_Right
+        VPushLongSlip = 0.15
+    End Object
+    Wheels(5)=RRBWheel
+
+    Begin Object class=Rx_Vehicle_StealthTank_Wheel Name=RLMWheel
+          BoneName="Wheel_RLM"
+        SkelControlName="Wheel_RLM_Cont"
+        Side=SIDE_Left
+    End Object
+    Wheels(6)=RLMWheel
+
+    Begin Object class=Rx_Vehicle_StealthTank_Wheel Name=RLBWheel
+        BoneName="Wheel_RLB"
+        SkelControlName="Wheel_RLB_Cont"
+        Side=SIDE_Left
+        VPushLongSlip = 0.15
+    End Object
+    Wheels(7)=RLBWheel
+
+   UIString="Stealth Tank"
+
+   WeightResistance = (X=0,Y=0,Z=-15000)
+   //Temporary system to tell if colliding with another vehicle 
+   PushCheckMax = (X=160,Y=-110,Z=-15)
+   PushCheckVWidth = (X=0,Y=220,Z=0)
+   PushCheckVLength = (X=325,Y=0,Z=0)
+
+    // The lower these numbers, the harder it is for another rigid body to Pitch/Twist this vehicle when pushing it
+	PushingUprightResistPitchMult = 0.3
+	PushingUprightResistRollMult = 0.3
+
+   PushTorqueMult = 0.3333333
+}

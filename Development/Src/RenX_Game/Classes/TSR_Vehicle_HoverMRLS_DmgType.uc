@@ -1,0 +1,17 @@
+class TSR_Vehicle_HoverMRLS_DmgType extends Rx_DmgType_Shell;
+
+defaultproperties
+{
+    KillStatsName=KILLS_HOVERMRLS
+    DeathStatsName=DEATHS_HOVERMRLS
+    SuicideStatsName=SUICIDES_HOVERMRLS
+
+    VehicleDamageScaling=0.48
+	lightArmorDmgScaling=0.48
+	AircraftDamageScaling=0.60
+    BuildingDamageScaling=0.96f
+	MineDamageScaling=2.0
+
+	IconTextureName="T_DeathIcon_MRLS"
+	IconTexture=Texture2D'TS_VH_HoverMRLS.Materials.T_DeathIcon_HoverMRLS'
+}

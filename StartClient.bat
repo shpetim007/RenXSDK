@@ -1,0 +1,1 @@
+start Binaries\Win32\UDK.exe -nomoviestartup -log -FORCELOGFLUSH -debug -SCRIPTSTACKONWARNINGS -UTRACE

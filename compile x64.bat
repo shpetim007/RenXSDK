@@ -1,0 +1,1 @@
+Binaries\Win64\UDK.exe make -full -buildmachine -stripsource

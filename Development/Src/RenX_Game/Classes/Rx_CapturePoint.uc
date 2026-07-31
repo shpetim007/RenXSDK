@@ -1,0 +1,839 @@
+/*********************************************************
+*
+* File: Rx_CapturePoint.uc
+* Author: Totem Arts Team
+* Project: Totem Arts UDK <www.totemarts.games>
+*
+* Desc:
+* A proximity-based capture point. This class is not placeable, but spawned from (usually) actors utilizing it
+* By itself, the CapturePoint does nothing but calculating results, as well as giving team score for capturing it. The other abilities are handled by its' associated actor
+* 
+* See Also :
+* - RxIfc_Capturable - Any actor with this Interface can make use of Rx_CapturePoint
+* - Rx_Building_TechBuildingPoint - Tech building that utilizes this class
+* - Rx_Building_TechBuildingPoint_Internals - The internal of earlier-mentioned building. This is the class that both spawns the Rx_CapturePoint and is linked to it. All functions called from this class are processed in the Internals class
+* - Rx_Volume_CaptureArea - A Volume that can be utilized (if the associated actor supports it) as an alternative to using radius check on CapturePoint.
+*
+*********************************************************
+*  
+*********************************************************/
+
+class Rx_CapturePoint extends Actor;
+
+// TODO Saved list of PRIs who aided in the cap/neutralise for score distribution
+
+// TODO Check whether progess stays displayed if a client is in cap zone in a vehicle, then the vehicle dies, and then they are ejected as infantry into the CP. (PawnDied in Rx_Controller)
+
+var() byte InitialTeam;
+var() bool bInfantryCanCap;
+var() bool bVehiclesCanCap;
+
+var bool bCaptured;	// is currently owned by CapturingTeam
+var byte CapturingTeam;
+var float CaptureProgress;
+
+var float BaseCapRatePerSecond;		// Capture speed by a single person.
+var float BonusCapRatePerSecond;	// Bonus capture speed added per extra person.
+var float MaxCapRatePerSecond;		// Max capture rate speed possible. Caps bonus cap rate.
+var float DrainRatePerSecond;
+var float FullCaptureScore;	// The amount to give someone who solo'd a capture . This amount is then divided up and distributed on multiple cappers.
+var float FullNeutralizeScore;	// Same as above but for neutralise.
+var float BonusNeutralizationAmount;
+var float ReplicatedProgress;
+var float ReplicateProgressTime;
+
+var array<Rx_Pawn> TouchingGDIPawns;
+var array<Rx_Pawn> TouchingNodPawns;
+var array<Rx_Vehicle> TouchingGDIVehicles;
+var array<Rx_Vehicle> TouchingNodVehicles;
+var int GDICount;
+var int NodCount;
+
+var array<Rx_PRI> CappingPRIs;	// Saved list of people who helped the capture/neutralise
+
+var RxIfc_Capturable AssociatedActor;
+var repnotify Actor ClientAssociatedActor;
+var String PointName;
+
+var bool bContested; 
+var bool bActive; 
+var name LastActiveState;
+
+`define CalcGDICount (TouchingGDIPawns.Length+GetVehicleWeight(0))
+`define CalcNodCount (TouchingNodPawns.Length+GetVehicleWeight(1))
+
+`define GDICapRate FMin(BaseCapRatePerSecond + (GDICount - NodCount - 1)*BonusCapRatePerSecond, MaxCapRatePerSecond)
+`define NodCapRate FMin(BaseCapRatePerSecond + (NodCount - GDICount - 1)*BonusCapRatePerSecond, MaxCapRatePerSecond)
+`define OffendersCapRate FMin(BaseCapRatePerSecond + (Offenders - Defenders - 1)*BonusCapRatePerSecond, MaxCapRatePerSecond)
+`define DefendersCapRate FMin(BaseCapRatePerSecond + (Defenders - Offenders - 1)*BonusCapRatePerSecond, MaxCapRatePerSecond)
+
+replication
+{
+	if (bNetDirty)
+		bCaptured, CapturingTeam, ReplicatedProgress, GDICount, NodCount, AssociatedActor, ClientAssociatedActor, bInfantryCanCap, bVehiclesCanCap, PointName,BonusNeutralizationAmount, bActive;
+}
+
+simulated event PostBeginPlay()
+{
+	super.PostBeginPlay();
+
+	if(WorldInfo.NetMode != NM_Client)
+	{
+		if (InitialTeam != 255)
+		{
+			CapturingTeam=InitialTeam;
+			CaptureProgress=1;
+			bCaptured=true;
+			GotoState('CapturedIdle');
+		}
+		SetTimer(0.25, true, 'ForceCorrect');
+
+		SetTimer(ReplicateProgressTime, true, 'RepProgress');
+
+		if (RxIfc_Capturable(Owner) != None)
+		{
+			AssociatedActor = RxIfc_Capturable(Owner);
+			ClientAssociatedActor = Owner;
+		}
+	}
+}
+
+simulated function ReplicatedEvent(name VarName)
+{
+	if(VarName == 'ClientAssociatedActor')
+	{
+		AssociatedActor = RxIfc_Capturable(ClientAssociatedActor);
+	}
+}
+
+function ForceCorrect()
+{
+	local Rx_Building_TechBuildingPoint_Internals MyBuildingInt;
+	local Rx_Volume_CaptureArea MyVol;
+	local Actor CollisionActor;
+	local Pawn CollidedPawn;
+	local array<Rx_Pawn> TouchingGDIPawnsLocal;
+	local array<Rx_Pawn> TouchingNodPawnsLocal;
+	local array<Rx_Vehicle> TouchingGDIVehiclesLocal;
+	local array<Rx_Vehicle> TouchingNodVehiclesLocal;
+
+
+	MyBuildingInt = Rx_Building_TechbuildingPoint_Internals(AssociatedActor);
+	if(MyBuildingInt != None)
+	{
+		MyVol = Rx_Building_TechbuildingPoint(MyBuildingInt.BuildingVisuals).CaptureVolume;
+	}
+
+
+	if(MyVol != None)
+	{
+		CollisionActor = MyVol;
+	}
+	else
+		CollisionActor = self;
+
+	foreach CollisionActor.TouchingActors(class'Pawn',CollidedPawn)
+	{
+		if(Rx_Pawn(CollidedPawn) != None && CollidedPawn.Health > 0 && bInfantryCanCap)
+		{
+			if(CollidedPawn.GetTeamNum() == 0)
+			{
+				TouchingGDIPawnsLocal.AddItem(Rx_Pawn(CollidedPawn));
+			}
+			else if(CollidedPawn.GetTeamNum() == 1)
+			{
+				TouchingNodPawnsLocal.AddItem(Rx_Pawn(CollidedPawn));
+			}
+//				`log(self@": Proceessed"@CollidedPawn@"as Team"@CollidedPawn.GetTeamNum());
+		}
+		else if(Rx_Vehicle(CollidedPawn) != None && bVehiclesCanCap && (CollidedPawn.PlayerReplicationInfo != none || CountsWhenEmpty(CollidedPawn)))
+		{
+			if(CollidedPawn.GetTeamNum() == 0)
+			{
+				TouchingGDIVehiclesLocal.AddItem(Rx_Vehicle(CollidedPawn));
+			}
+			else if(CollidedPawn.GetTeamNum() == 1)
+			{
+				TouchingNodVehiclesLocal.AddItem(Rx_Vehicle(CollidedPawn));
+			}
+//				`log(self@": Proceessed"@CollidedPawn@"as Team"@CollidedPawn.GetTeamNum());
+		}
+	}
+
+	TouchingGDIPawns = TouchingGDIPawnsLocal;
+	TouchingNodPawns = TouchingNodPawnsLocal;
+	TouchingGDIVehicles = TouchingGDIVehiclesLocal;
+	TouchingNodVehicles = TouchingNodVehiclesLocal;
+
+	GDICount = `CalcGDICount;
+	NodCount = `CalcNodCount;
+
+	Wake();
+}
+
+function int GetVehicleWeight(Byte Team)
+{
+	local Array<Rx_Vehicle>VehList;
+	local Rx_Vehicle Veh;
+	local int TotalNum;
+
+	if(Team == 0)
+		VehList = TouchingGDIVehicles;
+	else
+		VehList = TouchingNodVehicles;
+
+	foreach VehList(Veh)
+	{
+		TotalNum += Veh.NumPassengers();
+	}
+	return TotalNum;
+}
+
+function AddTouchingPawn(Rx_Pawn P, byte TeamIndex)
+{
+	if (TeamIndex == TEAM_GDI && TouchingGDIPawns.Find(P) < 0)
+	{
+		TouchingGDIPawns.AddItem(P);
+		GDICount = `CalcGDICount;
+	}
+	else if (TeamIndex == TEAM_Nod && TouchingNodPawns.Find(P) < 0)
+	{
+		TouchingNodPawns.AddItem(P);
+		NodCount = `CalcNodCount;
+	}
+}
+function RemoveTouchingPawn(Rx_Pawn P, byte TeamIndex)
+{
+	if (TeamIndex == TEAM_GDI)
+	{
+		TouchingGDIPawns.RemoveItem(P);
+		GDICount = `CalcGDICount;
+	}
+	else if (TeamIndex == TEAM_Nod)
+	{
+		TouchingNodPawns.RemoveItem(P);
+		NodCount = `CalcNodCount;
+	}
+}
+function RemoveTouchingPawnBothTeams(Rx_Pawn P)
+{
+	TouchingGDIPawns.RemoveItem(P);
+	GDICount = `CalcGDICount;
+	TouchingNodPawns.RemoveItem(P);
+	NodCount = `CalcNodCount;
+}
+function AddTouchingVehicle(Rx_Vehicle V, byte TeamIndex)
+{
+	if (TeamIndex == TEAM_GDI && TouchingGDIVehicles.Find(V) < 0)
+	{
+		TouchingGDIVehicles.AddItem(V);
+		GDICount = `CalcGDICount;
+	}
+	else if (TeamIndex == TEAM_Nod && TouchingNodVehicles.Find(V) < 0)
+	{
+		TouchingNodVehicles.AddItem(V);
+		NodCount = `CalcNodCount;
+	}
+}
+function RemoveTouchingVehicle(Rx_Vehicle V, byte TeamIndex)
+{
+	if (TeamIndex == TEAM_GDI)
+	{
+		TouchingGDIVehicles.RemoveItem(V);
+		GDICount = `CalcGDICount;
+	}
+	else if (TeamIndex == TEAM_Nod)
+	{
+		TouchingNodVehicles.RemoveItem(V);
+		NodCount = `CalcNodCount;
+	}
+}
+
+simulated event Touch( Actor Other, PrimitiveComponent OtherComp, vector HitLocation, vector HitNormal )
+{
+	if (WorldInfo.NetMode != NM_Client)
+	{
+		if (bInfantryCanCap && Rx_Pawn(Other) != None)
+			AddTouchingPawn(Rx_Pawn(Other), Other.GetTeamNum());
+		else if (bVehiclesCanCap && Rx_Vehicle(Other) != None && Rx_Defence(Other) == None && Rx_Defence_Emplacement(Other) == None && Rx_Vehicle(Other).bCanCapture)
+			AddTouchingVehicle(Rx_Vehicle(Other), Other.GetTeamNum());
+		Wake();
+	}
+}
+
+simulated event UnTouch( Actor Other )
+{
+	if (WorldInfo.NetMode != NM_Client)
+	{
+		if (bInfantryCanCap && Rx_Pawn(Other) != None)
+			RemoveTouchingPawn(Rx_Pawn(Other), Other.GetTeamNum());
+		else if (bVehiclesCanCap && Rx_Vehicle(Other) != None && Rx_Defence(Other) == None && Rx_Defence_Emplacement(Other) == None )
+			RemoveTouchingVehicle(Rx_Vehicle(Other), Other.GetTeamNum());
+		Wake();
+	}
+}
+
+simulated function bool TryDisplayHUD(Pawn P)
+{
+	// This condition won't work for vehicle passengers?
+	if (P.Controller != None && PawnShouldDisplayHUD(P))
+	{
+		if(Rx_Hud(UTPlayerController(P.Controller).myHud) != None)
+			Rx_Hud(UTPlayerController(P.Controller).myHud).DisplayCapturePoint(self);
+
+		return true;
+	}
+	return false;
+}
+
+simulated function bool PawnShouldDisplayHUD(Pawn P)
+{
+	local Rx_Vehicle V;
+
+	if(Rx_Pawn(P) != None)
+		return bInfantryCanCap;
+
+	if(!bVehiclesCanCap)
+		return false;
+
+	if(Rx_Vehicle(P) != None)
+		V = Rx_Vehicle(P);
+
+	else if(Rx_VehicleSeatPawn(P) != None && Rx_Vehicle(Rx_VehicleSeatPawn(P).MyVehicle) != None)
+		V = Rx_Vehicle(Rx_VehicleSeatPawn(P).MyVehicle);
+
+	if(Rx_Defence(V) != None || Rx_Defence_Emplacement(V) != None)
+		return false;
+
+	return true;
+}
+
+simulated function bool TryUndisplayHUD(Pawn P)
+{
+	if (P.Controller != None)
+	{
+		if(Rx_Hud(UTPlayerController(P.Controller).myHud) != None)
+			Rx_Hud(UTPlayerController(P.Controller).myHud).UndisplayCapturePoint(self);
+
+		return true;
+	}
+	return false;
+}
+
+function NotifyPawnDied(Rx_Pawn P, byte FromTeam)
+{
+	if (!bInfantryCanCap)
+		return;
+
+	// When a player changes team, the team change happens before the pawn is killed, so it'd try removing them from the newteam, but there pawn is in the oldteam array. So just attempt remove from both.
+	RemoveTouchingPawnBothTeams(P);
+
+	Wake();
+}
+
+function NotifyVehicleDied(Rx_Vehicle V, byte FromTeam)
+{
+	if (!bVehiclesCanCap)
+		return;
+
+	RemoveTouchingVehicle(V, FromTeam);
+
+	Wake();
+}
+
+function NotifyVehicleTeamChange(Rx_Vehicle V)
+{
+	local int i, j;
+
+	if (!bVehiclesCanCap)
+		return;
+
+	// tried anything else and returns with imprecise numbers. Let's just get this over with....
+
+	i = TouchingGDIVehicles.Find(V);
+	j = TouchingNodVehicles.Find(V);
+
+	if(i >= 0 && V.GetTeamNum() != 0)
+	{
+		RemoveTouchingVehicle(V, 0);
+	}
+	else if(i < 0 && V.GetTeamNum() == 0)
+	{
+		AddTouchingVehicle(V, 0);
+	}
+
+	if(j >= 0 && V.GetTeamNum() != 1)
+	{
+		RemoveTouchingVehicle(V, 1);
+	}
+	else if(j < 0 && V.GetTeamNum() == 1)
+	{
+		AddTouchingVehicle(V, 1);
+	}
+
+
+	
+	Wake();
+}
+
+function RepProgress()
+{
+	if(CaptureProgress != ReplicatedProgress)
+		ReplicatedProgress=CaptureProgress;
+	//`log("bCap:"$bCaptured$" CappinTeam:"$CapturingTeam$" Prog:"$CaptureProgress$" GDI:"$GDICount $" Nod:"$NodCount);
+}
+
+function Wake();
+
+auto state NeutralIdle
+{
+	simulated function BeginState(name PreviousStateName)
+	{
+		SetContested(false);
+		super.BeginState(PreviousStateName); 
+	}
+
+	event Tick( float DeltaTime );
+
+	function Wake()
+	{
+		if (GDICount > 0 || NodCount > 0)
+			GotoState('NeutralActive');
+	}
+}
+
+state NeutralActive
+{
+	event Tick( float DeltaTime )
+	{
+		if (GDICount > NodCount && AssociatedActor.IsCapturableBy(Team_GDI))
+		{
+			if (CapturingTeam == TEAM_GDI)
+			{	
+				if(AssociatedActor.GetLastOwner() != TEAM_GDI)
+					SetContested(true);
+
+				CaptureProgress += DeltaTime * `GDICapRate;
+				if (CaptureProgress >= 1)
+				{
+					CaptureProgress = 1;
+					ReplicatedProgress = 1;
+					CapturedBy(TEAM_GDI);
+					GotoState('CapturedIdle');
+				}
+			}
+			else
+			{
+				if(AssociatedActor.GetLastOwner() == TEAM_GDI)
+					SetContested(false);
+
+				CaptureProgress -= DeltaTime * `GDICapRate;
+				//SetContested(false);
+				if (CaptureProgress <= 0)
+				{
+					CaptureProgress = 0;
+					ReplicatedProgress = 0;
+					BeginCaptureBy(TEAM_GDI);
+				}
+			}
+			AssociatedActor.NotifyUnderAttack(TEAM_GDI);
+		}
+		else if (NodCount > GDICount && AssociatedActor.IsCapturableBy(Team_NOD))
+		{
+			if (CapturingTeam == TEAM_Nod)
+			{
+				if(AssociatedActor.GetLastOwner() != TEAM_NOD)
+					SetContested(true);
+
+				CaptureProgress += DeltaTime * `NodCapRate;
+				
+				if (CaptureProgress >= 1)
+				{
+					CaptureProgress = 1;
+					ReplicatedProgress = 1;
+					CapturedBy(TEAM_Nod);
+					GotoState('CapturedIdle');
+				}
+			}
+			else
+			{
+				if(AssociatedActor.GetLastOwner() == TEAM_NOD)
+					SetContested(false);
+
+				CaptureProgress -= DeltaTime * `NodCapRate;
+				if (CaptureProgress <= 0)
+				{
+					CaptureProgress = 0;
+					ReplicatedProgress = 0;
+					BeginCaptureBy(TEAM_Nod);
+				}
+			}
+			//SetContested(true);
+			AssociatedActor.NotifyUnderAttack(TEAM_Nod);
+		}
+		else if (GDICount == 0 && NodCount == 0)
+		{
+			CaptureProgress -= DeltaTime*DrainRatePerSecond;
+			SetContested(false);
+
+			if (CaptureProgress <= 0)
+			{
+				CaptureProgress = 0;
+				ReplicatedProgress = 0;
+				RestoredNeutral();
+				GotoState('NeutralIdle');
+			}
+		}
+		else	// implies (GDICount == NodCount && GDICount > 0 && NodCount > 0)
+		{
+			AssociatedActor.NotifyUnderAttack(255);
+			SetContested(true);
+		    // stalemate - do nothing.
+		}
+	}
+}
+
+state CapturedIdle
+{
+	simulated function BeginState(name PreviousStateName)
+	{
+		SetContested(false);
+		super.BeginState(PreviousStateName); 
+	}
+
+	event Tick( float DeltaTime );
+
+	function Wake()
+	{
+		if(CapturingTeam == TEAM_GDI && NodCount > 0)
+			SetContested(true);
+		else if(CapturingTeam == TEAM_NOD && GDICount > 0)
+			SetContested(true);
+		else
+			SetContested(false);
+
+		if (CapturingTeam == TEAM_GDI && NodCount > GDICount)
+			GotoState('CapturedActive');
+		else if (CapturingTeam == TEAM_Nod && GDICount > NodCount)
+			GotoState('CapturedActive');
+	}
+}
+
+state CapturedActive
+{
+	event Tick( float DeltaTime )
+	{
+		local int Defenders, Offenders;
+
+		if (CapturingTeam == TEAM_GDI)
+		{
+			Defenders = GDICount;
+			Offenders = NodCount;
+		}
+		else if (CapturingTeam == TEAM_Nod)
+		{
+			Defenders = NodCount;
+			Offenders = GDICount;
+		}
+
+		if (Offenders > Defenders && AssociatedActor.IsCapturableBy(1 - CapturingTeam))
+		{
+			if (CaptureProgress >= 1)
+				BeginNeutralizeBy( CapturingTeam == TEAM_GDI ? TEAM_Nod : TEAM_GDI );
+			CaptureProgress -= DeltaTime * `OffendersCapRate;
+
+			if(BonusNeutralizationAmount!=0)
+			{
+				CaptureProgress=1-BonusNeutralizationAmount;
+				BonusNeutralizationAmount=0;
+			}
+			if (CaptureProgress <= 0)
+			{
+				CaptureProgress = 0;
+				ReplicatedProgress = 0;
+				NeutralizedBy( CapturingTeam == TEAM_GDI ? TEAM_Nod : TEAM_GDI );
+				GotoState('NeutralActive');
+			}
+			SetContested(true);
+			AssociatedActor.NotifyUnderAttack(CapturingTeam == TEAM_GDI ? TEAM_Nod : TEAM_GDI );
+		}
+		else if (Offenders == Defenders && Offenders > 0)
+		{
+			// Stalemate - do nothing
+			SetContested(true);
+		}
+		else if (AssociatedActor.IsCapturableBy(CapturingTeam))	// implies (Defenders > Offenders || Defenders == 0 && Offenders == 0)
+		{
+			if (CaptureProgress < 1)
+			{
+				if (Defenders > Offenders)
+					CaptureProgress += DeltaTime * `DefendersCapRate;
+				else if (Defenders == 0)
+					CaptureProgress += DeltaTime*DrainRatePerSecond;
+
+				if(Offenders == 0)
+					SetContested(false);
+				else
+					SetContested(true);
+			}
+			if (CaptureProgress >= 1)
+			{
+				CaptureProgress = 1;
+				ReplicatedProgress = 1;
+				RestoredCaptured();
+				GotoState('CapturedIdle');
+			}
+		}
+	}
+}
+
+function BeginCaptureBy(byte TeamIndex)
+{
+	CapturingTeam = TeamIndex;
+	if (AssociatedActor != None)
+		AssociatedActor.NotifyBeginCaptureBy(TeamIndex);
+}
+
+function CapturedBy(byte TeamIndex)
+{
+	bCaptured = true;
+	CapturingTeam = TeamIndex;
+	SetContested(false);
+
+	if (AssociatedActor != None)
+		AssociatedActor.NotifyCapturedBy(TeamIndex);
+
+	if (TeamIndex == TEAM_GDI)
+		GiveScore(FullCaptureScore, TEAM_GDI);
+	else if (TeamIndex == TEAM_Nod)
+		GiveScore(FullCaptureScore, TEAM_Nod);
+}
+
+function BeginNeutralizeBy(byte TeamIndex)
+{
+	if (AssociatedActor != None)
+		AssociatedActor.NotifyBeginNeutralizeBy(TeamIndex);
+}
+
+function NeutralizedBy(byte TeamIndex)
+{
+	local byte PreviousOwner;
+	PreviousOwner = CapturingTeam;
+	
+	bCaptured = false;
+	CapturingTeam = TeamIndex;
+	if (AssociatedActor != None)
+		AssociatedActor.NotifyNeutralizedBy(TeamIndex, PreviousOwner);
+
+	if (TeamIndex == TEAM_GDI)
+		GiveScore(FullNeutralizeScore, TEAM_GDI);
+	else if (TeamIndex == TEAM_Nod)
+		GiveScore(FullNeutralizeScore, TEAM_Nod);
+}
+
+function RestoredNeutral()
+{
+	CapturingTeam = 255;
+	if (AssociatedActor != None)
+		AssociatedActor.NotifyRestoredNeutral();
+}
+
+function RestoredCaptured()
+{
+	if (AssociatedActor != None)
+		AssociatedActor.NotifyRestoredCaptured();
+}
+
+function GiveScore(float Amount, byte ToTeam)
+{
+	local float share;
+	local Rx_Pawn P;
+	local Rx_Vehicle V;
+	local Rx_PRI Seater;
+	local int SeatAmount,i;
+
+	if(Amount <= 0)
+		return;
+
+	if (ToTeam == TEAM_GDI)
+	{
+		share = Amount / GDICount;
+		foreach TouchingGDIPawns(P)
+			Rx_PRI(P.PlayerReplicationInfo).AddScoreToPlayerAndTeam(share);
+		foreach TouchingGDIVehicles(V)
+		{
+			SeatAmount = V.NumPassengers();
+			for(i = 0; i < V.Seats.length; i++)
+			{
+				if(V.Seats[i].SeatPawn != None)	
+				{
+					Seater = Rx_PRI(V.Seats[i].SeatPawn.PlayerReplicationInfo);
+					if(Seater != None)
+					{
+						Seater.AddScoreToPlayerAndTeam(FCeil(share/SeatAmount));
+					}
+				}			
+			}
+			// TODO add score to first occupied seat or split amongst vehicle?
+		}
+	}
+	else if (ToTeam == TEAM_Nod)
+	{
+		share = Amount / NodCount;
+		foreach TouchingNodPawns(P)
+			Rx_PRI(P.PlayerReplicationInfo).AddScoreToPlayerAndTeam(share);
+		foreach TouchingNodVehicles(V)
+		{
+			SeatAmount = V.NumPassengers();
+			for(i = 0; i < V.Seats.length; i++)
+			{
+				if(V.Seats[i].SeatPawn != None)	
+				{
+					Seater = Rx_PRI(V.Seats[i].SeatPawn.PlayerReplicationInfo);
+					if(Seater != None)
+					{
+						Seater.AddScoreToPlayerAndTeam(FCeil(share/SeatAmount));
+					}
+				}			
+			}
+		}
+	}
+}
+
+simulated function byte GetOwningTeam()
+{
+	if (bCaptured)
+		return CapturingTeam;
+	else
+		return 255;
+}
+
+simulated function bool IsInvisible()
+{
+	return false;
+}
+
+/* If a Pawn (usually a vehicle) counts toward capture points even when empty */
+function bool CountsWhenEmpty(Pawn InPawn)
+{
+	return false; 
+}
+
+function SetContested(bool bSetTo)
+{
+	if(bContested != bSetTo)
+	{
+		//`log("Set Contested" @ bSetTo @ GetStateName());
+		bContested = bSetTo; 
+		AssociatedActor.NotifyContested(bContested);
+	}
+}
+
+function AwardNeutralizationBonus(float Amount)
+{
+	BonusNeutralizationAmount = Amount;
+}
+
+function InstantNeutralize(byte TeamByte)
+{
+	local byte PreviousOwner;
+	PreviousOwner = CapturingTeam;
+	bCaptured = false;
+	CapturingTeam = TeamByte;
+	if (AssociatedActor != None)
+		AssociatedActor.NotifyNeutralizedBy(TeamByte, PreviousOwner);
+
+	CaptureProgress = 0;
+	ReplicatedProgress = 0;
+	CapturingTeam = 255; 
+	NeutralizedBy( CapturingTeam == TEAM_GDI ? TEAM_Nod : TEAM_GDI );
+	GotoState('NeutralIdle');
+}
+
+simulated function SetIsActive(bool bNewActive)
+{
+	if(ROLE == ROLE_Authority)
+	{
+		bActive = bNewActive;
+	}
+
+	if(bActive && GetStateName() == 'Inactive')
+	{
+		if(LastActiveState != '')
+		{
+			GotoState(LastActiveState);
+		}
+		else
+		{
+			GotoState('NeutralIdle'); 
+		}
+		
+	}
+	else if(!bActive && GetStateName() != 'Inactive')
+	{
+		LastActiveState = GetStateName();
+		GotoState('Inactive'); 
+	}
+		
+}
+
+simulated function bool IsActive()
+{
+	return bActive; 
+}
+
+
+state Inactive {
+	
+	event Tick( float DeltaTime ); //Do nothing while inactive
+}
+DefaultProperties
+{
+	Begin Object Class=CylinderComponent Name=CollisionCylinder
+		CollisionRadius=512.0
+		CollisionHeight=256.0
+		BlockNonZeroExtent=true
+		BlockZeroExtent=false
+		BlockActors=false
+		CollideActors=true
+		bDrawBoundingBox=true
+		bDrawNonColliding=true
+		HiddenGame=false
+	End Object
+	CollisionComponent=CollisionCylinder
+	Components.Add(CollisionCylinder)
+
+	//bOnlyDirtyReplication=true
+	NetUpdateFrequency=8
+	RemoteRole=ROLE_SimulatedProxy
+	bUpdateSimulatedPosition = true
+	bHidden=false
+	NetPriority=+1.0
+	bCollideActors=true
+	bCollideWorld=false
+	bBlockActors=false
+
+
+
+	bAlwaysRelevant=true
+	bGameRelevant=true
+
+	bActive = true
+	bCaptured=false
+	CapturingTeam=255
+	CaptureProgress=0
+	ReplicateProgressTime=0.25
+
+	FullCaptureScore=100
+	FullNeutralizeScore=100
+	BaseCapRatePerSecond=0.1
+	BonusCapRatePerSecond=0.02
+	MaxCapRatePerSecond=0.2
+	DrainRatePerSecond=0.05
+
+	bInfantryCanCap=true
+	bVehiclesCanCap=false
+	InitialTeam=255
+
+	BonusNeutralizationAmount=0
+}

@@ -1,0 +1,96 @@
+class Rx_Building_Obelisk_Internals_Base extends Rx_Building_Team_Internals;
+
+var Rx_Sentinel_Obelisk_Laser_Base laserSentinel;
+var MaterialInstanceConstant CrystalGlowMIC;
+var class<Rx_Sentinel_Obelisk_Laser_Base> LaserSentinelClass;
+
+simulated function Init(Rx_Building Visuals, bool isDebug )
+{
+	Super.Init(Visuals,isDebug);
+	if(WorldInfo.Netmode != NM_Client && !Rx_Building_Defense(Visuals).bDisabled) 
+	{
+		SetupLaser();
+	}	
+}
+
+function SetupLaser() 
+{
+	local vector v,v2;
+
+	v = BuildingSkeleton.GetBoneLocation(BuildingSkeleton.GetSocketBoneName('Ob_Fire'));
+	v.z += 100;
+
+	v2 = BuildingVisuals.location;
+	v2.z = v.z;
+	v2 = v2 + Normal(v-v2)*100;
+
+	laserSentinel = Spawn(LaserSentinelClass,,,v2,,,true);
+	laserSentinel.SetOwner(self);
+	laserSentinel.Team = self.TeamID;
+
+	if(laserSentinel != none)
+	{
+		laserSentinel.bCollideWorld = true; //Turn off collision and translate, because collision may move the Sentinel away from the ceiling when it's spawned.
+
+		laserSentinel.setFireStartLoc(v);
+		Rx_Building_Nod_Defense(BuildingVisuals).SentinelLocation = laserSentinel.location;
+
+		laserSentinel.Initialize();
+		CrystalGlowMIC = BuildingSkeleton.CreateAndSetMaterialInstanceConstant(0);
+
+		Rx_SentinelWeapon_Obelisk(laserSentinel.SWeapon).CrystalGlowMIC = CrystalGlowMIC;
+		laserSentinel.SController.TargetWaitTime = 6.0;
+		laserSentinel.SController.bSeeFriendly=false;
+		laserSentinel.SController.TargetWaitTime=3.0;
+		laserSentinel.SController.SightCounterInterval=0.15;
+		laserSentinel.MyBuilding=BuildingVisuals;
+		
+		Rx_SentinelWeapon_Obelisk(laserSentinel.SWeapon).InitAndAttachMuzzleFlashes(BuildingSkeleton, 'Ob_Fire');
+	}
+}
+
+function TakeDamage(int DamageAmount, Controller EventInstigator, vector HitLocation, vector Momentum, class<DamageType> DamageType, optional TraceHitInfo HitInfo, optional Actor DamageCauser) 
+{
+	super.TakeDamage(DamageAmount, EventInstigator, HitLocation, Momentum, DamageType, HitInfo, DamageCauser);
+	if(laserSentinel != None) 
+	{
+		laserSentinel.SController.NotifyTakeHit(EventInstigator,HitLocation,DamageAmount,DamageType,Momentum);
+	}
+	
+	if(bDestroyed) 
+	{
+		OnBuildingDestroyed();
+	}
+}
+
+simulated function OnBuildingDestroyed()
+{
+	if(laserSentinel != None) {
+		Rx_SentinelWeapon_Obelisk(laserSentinel.SWeapon).ClearTimer('crystalChargingGlow');
+		Rx_SentinelWeapon_Obelisk(laserSentinel.SWeapon).CrystalGlowMIC.SetScalarParameterValue('Obelisk_Glow', 0.0); 
+		Rx_SentinelWeapon_Obelisk(laserSentinel.SWeapon).FiringState=0;
+	}
+}
+
+function bool PowerLost(optional bool bFromKismet)
+{
+	if(super.PowerLost(bFromKismet) && laserSentinel != none) 
+	{
+		Rx_SentinelWeapon_Obelisk(laserSentinel.SWeapon).ClearTimer('crystalChargingGlow');
+		Rx_SentinelWeapon_Obelisk(laserSentinel.SWeapon).CrystalGlowMIC.SetScalarParameterValue('Obelisk_Glow', 0.0); 
+		Rx_SentinelWeapon_Obelisk(laserSentinel.SWeapon).FiringState=0;
+
+		BuildingVisuals.TriggerEventClass(Class'Rx_SeqEvent_DefenseEvent',None,0);
+
+		return true;
+	}
+
+
+
+	return false;
+}
+
+DefaultProperties
+{
+	LaserSentinelClass = class'Rx_Sentinel_Obelisk_Laser_Base'
+}

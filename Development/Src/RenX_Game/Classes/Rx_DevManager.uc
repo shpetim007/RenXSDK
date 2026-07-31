@@ -1,0 +1,95 @@
+class Rx_DevManager extends Object;
+
+struct Developer
+{
+	var string SteamID;
+	var Texture2D FlagTexture;
+	var SoundCue HornSound;
+
+	structdefaultproperties
+	{
+		FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_RenX'
+	}
+};
+
+var const array<Developer> Developers;
+var const Texture2D DefaultFlagTexture;
+
+static function bool IsDev(string SteamID)
+{
+	return default.Developers.Find('SteamID', SteamID) != INDEX_NONE;
+}
+
+static function Texture2D GetFlagTexture(string SteamID, bool bIsDev)
+{
+	local int i;
+
+	i = default.Developers.Find('SteamID', SteamID);
+
+	if (i != INDEX_NONE)
+		return default.Developers[i].FlagTexture;
+	else if (bIsDev) // Remove this and line below to remove default texture for all devs
+		return default.DefaultFlagTexture;
+
+	return None;
+}
+
+static function SoundCue GetHornSound(string SteamID, bool bIsDev, SoundCue DefaultHornSound)
+{
+	local int i;
+
+	i = default.Developers.Find('SteamID', SteamID);
+
+	if (i != INDEX_NONE && default.Developers[i].HornSound != none)
+		return default.Developers[i].HornSound;
+
+	return DefaultHornSound;
+}
+
+DefaultProperties
+{
+	DefaultFlagTexture = Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_RenX'
+
+//	Developers(0)=(SteamID="0x0110000104F6DF15",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Handepsilon')
+	Developers.Add((SteamID="0x0110000104F6DF15",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Handepsilon_Spoopy'))
+	Developers.Add((SteamID="0x01100001027D810B",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Havoc89', HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_Havoc89_Cue'))
+	Developers.Add((SteamID="0x01100001022ABF16",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Kenz', HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_Kenz_Cue'))
+	Developers.Add((SteamID="0x0110000108C01817",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Sarah',HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_Cronus_Cue'))
+	Developers.Add((SteamID="0x011000010312CEAA",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Yosh',HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_Yosh_Cue'))
+	Developers.Add((SteamID="0x01100001129759DD",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_TK', HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_TK_Cue'))
+	Developers.Add((SteamID="0x0110000107CAD64F",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Fobby', HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_Fobby_Cue'))
+//	Developers.Add((SteamID="0x0110000104AE0666",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Agent'))
+	Developers.Add((SteamID="0x0110000103299B73",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Freak', HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_fffreak_Cue'))
+	Developers.Add((SteamID="0x0110000108C77076",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Henk', HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_Henk_Cue'))
+	Developers.Add((SteamID="0x0110000117E950EC",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Bruno'))
+	Developers.Add((SteamID="0x01100001055A48CF",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_SMaywho'))
+	Developers.Add((SteamID="0x011000010646AA9C",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_SgtIgram', HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_SgtIgram_Cue'))
+	Developers.Add((SteamID="0x01100001098F1C63",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Nexus', HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_Nexus_Cue'))
+	Developers.Add((SteamID="0x0110000138C15A9F",FlagTexture=Texture2D'Rx_Deco_Flag.banner.Texture.T_Banner_HIHIHI'))
+	Developers.Add((SteamID="0x01100001028434CE",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Shrewd', HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_Shrewd_Cue'))
+	Developers.Add((SteamID="0x0110000102C7A7DE",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Cynthia', HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_Bynthia_Cue'))
+	Developers.Add((SteamID="0x01100001024DDAE9")) //Ruud
+	Developers.Add((SteamID="0x0110000113E3E2FA",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Luhrian'))
+	Developers.Add((SteamID="0x01100001037040B6")) //DaKuja
+	Developers.Add((SteamID="0x01100001038A6D98")) //Sumo
+	Developers.Add((SteamID="0x0110000102F821B5")) //Zack
+	Developers.Add((SteamID="0x01100001032C8BE3")) //Kryp
+	Developers.Add((SteamID="0x011000010093CF91")) //AlienX
+	Developers.Add((SteamID="0x0110000101BE6F47")) //RypeL
+	Developers.Add((SteamID="0x0110000101A9614A",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Glacious', HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SC_Horn_Glacious_Cue')) //Glacious 
+	Developers.Add((SteamID="0x011000010375CF05")) //Schmitz
+    Developers.Add((SteamID="0x011000010ACFF720",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Ukill'))
+    Developers.Add((SteamID="0x0110000100B2D29E",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Aut', HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_Aut_Cue'))
+	Developers.Add((SteamID="0x0110000106ff0d03")) // kira-moshe
+	Developers.Add((SteamID="0x01100001023BA006",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Cronus',HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_Cronus_Cue'))
+	Developers.Add((SteamID="0x01100001030EC39A",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Whistle'))
+	Developers.Add((SteamID="0x0110000100BD8ECC",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_tankbusta'))
+	Developers.Add((SteamId="0x01100001031B5E18",FlagTexture=Texture2D'EngineMaterials.DefaultDiffuse')) //matt
+	Developers.Add((SteamID="0x011000011A5EBC31",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Njorl'))
+	Developers.Add((SteamID="0x011000010171b354",FlagTexture=Texture2D'RX_Deco_Flag.banner.T_Banner_Madkyll'))
+	Developers.Add((SteamID="0x011000010bb27e65",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Roweboat'))
+	Developers.Add((SteamId="0x011000010D01D553",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_J',HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_RealJ_Cue')) //J
+	Developers.Add((SteamId="0x01100001356811AD",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_Necroplasmic',HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_Necroplasmic_Cue'))
+	Developers.Add((SteamID="0x0110000101f700b7",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_TiLter',HornSound=SoundCue'RX_SoundEffects.RX_VH_Horns.SN_Horn_TiLter_Cue'))
+	Developers.Add((SteamID="0x0110000101C52592",FlagTexture=Texture2D'RX_Deco_Flag.banner.Texture.T_Banner_ZakianVoid'))
+}

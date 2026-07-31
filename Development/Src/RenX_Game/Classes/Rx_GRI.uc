@@ -1,0 +1,1156 @@
+class Rx_GRI extends UTGameReplicationInfo;
+  
+`define MapVoteMaxSize 9
+
+var Rx_VehicleManager VehManager;
+var Rx_ORI ObjectiveManager; 
+var byte WinnerTeamNum;
+var bool WinBySurrender;
+var String WinnerReason;
+var int MapVotes[`MapVoteMaxSize];
+var string MapVoteList[`MapVoteMaxSize];
+var int MapVoteIndexMapping[`MapVoteMaxSize];
+var array<MaterialInstanceConstant> GlobalParticleMIC;
+var MaterialInstanceConstant NightVisionMIC;
+var MaterialInstanceConstant GlobalStealthAddTranslucencyBiasMIC;
+var MaterialInstanceConstant GlobalStealthEffectMultiplierMIC;
+var MaterialInstanceConstant GlobalStealthVisibilityMultiplierMIC;
+var MaterialInstanceConstant CharacterGdiBrightnessMIC;
+var MaterialInstanceConstant CharacterNodBrightnessMIC;
+var MaterialInstanceConstant CharacterReflectionMIC;
+var MaterialInstanceConstant CharacterReflectionTextureMIC;
+var MaterialInstanceConstant VehicleGdiBrightnessMIC;
+var MaterialInstanceConstant VehicleGdiAdaptiveBrightnessMIC;
+var MaterialInstanceConstant VehicleGdiPBRBrightnessMIC;
+var MaterialInstanceConstant VehicleNodBrightnessMIC;
+var MaterialInstanceConstant VehicleNodAdaptiveBrightnessMIC;
+var MaterialInstanceConstant VehicleNodPBRBrightnessMIC;
+var MaterialInstanceConstant VehicleReflectionMIC;
+var MaterialInstanceConstant VehicleAdaptiveReflectionMIC;
+var MaterialInstanceConstant VehicleReflectionTextureMIC;
+var MaterialInstanceConstant VehiclePBRReflectionTextureMIC;
+var MaterialInstanceConstant VehicleCloakCamoMIC;
+var int MaxActiveEmitters;
+var Rx_PurchaseSystem PurchaseSystem;
+var int MapVotesSize;
+var int MapVoteTime;
+var float RenEndTime;
+var string NextMap;
+var int buildingArmorPercentage;
+var string MVP[2], BestOP[2], BestDP[2], BestSP[2];
+var bool bPureServer;
+var bool bEnableCommanders;
+var bool bEnableBotVotes;
+var bool bEnableNuke;
+var int MinPlayersForNukes; // information for PT
+var repnotify float AOW_WinPct; //-1.0-1.0 (1.0 being Nod 100% winning -1.0 being GDI winning 100%)
+
+var array<class<Rx_StatModifierInfo> >		StatClasses; 
+var array<MaterialInstanceConstant> CustomWeaponMICs; 
+
+var array<Actor> SpottingArray; //Array of spot locations on the map
+var array<Actor> TechBuildingArray; //Array to hold map tech buildings (Optimization to reduce constantly iterating 'AllActors')
+
+// Player Votes
+var string VoteTopString[3];
+var byte VotesYes[3];
+var byte VotesNo[3];
+var byte YesVotesNeeded[3];
+var byte VotersTotal[3];
+var byte VoteTimeLeft[3];
+var Actor VoteSubject[3];
+var class<Rx_VoteMenuChoice> VoteChoiceClass[3];
+var string VoteExtraParams[3];
+
+var bool bCanRequestCheatBots;
+
+var bool bChangeMapVotesAvailable;
+
+//Auto balance variables
+var bool bAutobalanceInProgress;
+var bool bBalanceAchieved;
+var bool bBalanceCancelled;
+var int TeamNeedingPlayers;
+var int BalanceReward;
+var bool bAutoBalanceForced;
+var bool bAutoBalanceVpRewardEnabled;
+var string TimeStatus;
+var bool bAirDropsEnabled; 
+
+//Admin Map vote control (Controlled in Rx_Game config (RenegadeX.ini))
+var bool bAdminControlledMapVote; 
+var bool bStartRestarting; 
+
+replication
+{
+	if (bNetDirty)
+		WinnerTeamNum,WinnerReason,MapVotes,MapVoteTime,PurchaseSystem,MapVoteList,NextMap,buildingArmorPercentage, WinBySurrender, MVP, BestOP, BestDP, BestSP, bEnableCommanders, bEnableBotVotes, bEnableNuke, MinPlayersForNukes,
+		VoteTopString, VotesYes, VotesNo, YesVotesNeeded, VotersTotal, VoteTimeLeft, VoteSubject, VoteChoiceClass, VoteExtraParams, bCanRequestCheatBots, bChangeMapVotesAvailable,bAutobalanceInProgress,TeamNeedingPlayers,bBalanceAchieved,bBalanceCancelled,
+		BalanceReward,bAutoBalanceForced,bAutoBalanceVpRewardEnabled, bStartRestarting;
+		
+	if(bNetDirty || bNetInitial)	
+		TimeStatus, bAirDropsEnabled, AOW_WinPct, bAdminControlledMapVote;
+}
+
+simulated event PostBeginPlay()
+{
+	local Rx_Game MyGame;
+
+	super.PostBeginPlay();
+	
+	MyGame = Rx_Game(WorldInfo.Game); 
+
+	if(WorldInfo.Netmode != NM_Client && MyGame.UsePurchaseSystem)
+		SetTimer(1.0f,false,'GetPurchaseSystem');
+
+	if(ROLE == ROLE_Authority)
+		bAdminControlledMapVote = MyGame.bAdminsStartMapVote;
+
+	if(!bAdminControlledMapVote)
+	{
+		MapVoteTime = MyGame.MapVoteTime + 10;
+	}
+	else if(ROLE == ROLE_Authority)
+	{
+		MapVoteTime = Rx_Game(WorldInfo.Game).MapVoteTime;
+	}
+		
+	switch (Rx_MapInfo(WorldInfo.GetMapInfo()).Theater)
+	{
+	case THEATER_NORMAL:
+		VehicleGdiAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_Default');
+		VehicleNodAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Default');
+		VehicleCloakCamoMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Default');
+		VehicleGdiPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_Default');
+		VehicleNodPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Default');
+		break;
+
+	case THEATER_FORESTA:
+		VehicleGdiAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_Forest');
+		VehicleNodAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Forest');
+		VehicleCloakCamoMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Forest');
+		VehicleGdiPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_Forest');
+		VehicleNodPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Forest');
+		break;
+
+
+	case THEATER_FORESTB:
+		VehicleGdiAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_ForestB');
+		VehicleNodAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_ForestB');
+		VehicleCloakCamoMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_ForestB');
+		VehicleGdiPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_ForestB');
+		VehicleNodPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_ForestB');
+		break;
+
+	case THEATER_SNOW:
+		VehicleGdiAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_Arctic');
+		VehicleNodAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Arctic');
+		VehicleCloakCamoMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Arctic');
+		VehicleGdiPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_Arctic');
+		VehicleNodPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Arctic');
+		break;
+
+	case THEATER_DESERT:
+		VehicleGdiAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_Desert');
+		VehicleNodAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Desert');
+		VehicleCloakCamoMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Desert');
+		VehicleGdiPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_Desert');
+		VehicleNodPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Desert');
+		break;
+
+	case THEATER_URBAN:
+		VehicleGdiAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_Urban');
+		VehicleNodAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Urban');
+		VehicleCloakCamoMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Urban');
+		VehicleGdiPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_Urban');
+		VehicleNodPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Urban');
+		break;
+
+	case THEATER_CUSTOM:
+		VehicleGdiAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_Custom');
+		VehicleNodAdaptiveBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Custom');
+		VehicleCloakCamoMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Urban');
+		VehicleGdiPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_GDI_Custom');
+		VehicleNodPBRBrightnessMIC.SetTextureParameterValue('Camo', Texture2D'RenX_AssetBase.Vehicle.T_Camo_Nod_Custom');
+		break;
+
+	}
+
+	VehicleGdiAdaptiveBrightnessMIC.SetVectorParameterValue('Camo_Colour', Rx_MapInfo(WorldInfo.GetMapInfo()).GdiCamoColour);
+	VehicleNodAdaptiveBrightnessMIC.SetVectorParameterValue('Camo_Colour', Rx_MapInfo(WorldInfo.GetMapInfo()).NodCamoColour);
+	VehicleCloakCamoMIC.SetVectorParameterValue('Camo_Colour', Rx_MapInfo(WorldInfo.GetMapInfo()).NodCamoColour);
+	VehicleGdiPBRBrightnessMIC.SetVectorParameterValue('Camo_Colour', Rx_MapInfo(WorldInfo.GetMapInfo()).GdiCamoColour);
+	VehicleNodPBRBrightnessMIC.SetVectorParameterValue('Camo_Colour', Rx_MapInfo(WorldInfo.GetMapInfo()).NodCamoColour);
+	
+	CreateListArrays();
+	/**if(WorldInfo.Netmode == NM_Client || WorldInfo.Netmode == NM_Standalone)
+		SetTimer(1.0f,true,'FindORI'); */
+}
+
+simulated function array<Rx_UIDataProvider_MapInfo> GetMapDataProviderList()
+{
+	local array<UDKUIResourceDataProvider> ProviderList; 
+	local array<Rx_UIDataProvider_MapInfo> MapDataList;
+	local int i;
+
+	// make sure default map exists
+	class'UTUIDataStore_MenuItems'.static.GetAllResourceDataProviders(class'Rx_UIDataProvider_MapInfo', ProviderList);
+	
+	//hack until we solve the sorting issue
+	for (i = ProviderList.length - 1; i >= 0; i--)
+	{		
+		if (Rx_UIDataProvider_MapInfo(ProviderList[i]) == none) {
+			`log("NONE - ProviderList[i]? " $ Rx_UIDataProvider_MapInfo(ProviderList[i]).MapName);
+			continue;
+		}
+		MapDataList.AddItem(Rx_UIDataProvider_MapInfo(ProviderList[i]));
+	} 
+	if (MapDataList.Length > 0) {
+		MapDataList.Sort(MapListSort);
+	} 
+	return MapDataList;
+
+}
+
+delegate int MapListSort(Rx_UIDataProvider_MapInfo A, Rx_UIDataProvider_MapInfo B) 
+{
+	if(A.FriendlyName == B.FriendlyName)	// Handepsilon - I spent 4 hours pulling my hair out trying to figure out what was wrong with my game. It turns out this was the culprit. This is never happening again...	
+	{
+		`warn("Error! Sorting failed due to duplicate FriendlyName : ("$A.FriendlyName$") on 2 or more maps! Please use different names!!");
+		return 0;
+	}
+	return A.FriendlyName < B.FriendlyName ? 0 : -1;
+}
+
+function SetupEndMapVote(array<string> MapList, bool bScramble)
+{
+	local int i, random;
+
+	MapVotesSize=0;
+	for (i=0; i<`MapVoteMaxSize; ++i)
+	{
+		if (bScramble)
+		{
+			if (MapList.Length == 0)
+				break;
+			random = Rand(MapList.Length);
+			if (MapVoteList[i] != MapList[random])
+				MapVoteList[i] = MapList[random];
+			MapList.Remove(random, 1);
+		}
+		else
+		{
+			if (i<MapList.Length)
+				break;
+			if (MapVoteList[i] != MapList[i])
+				MapVoteList[i] = MapList[i];
+		}
+		++MapVotesSize;
+	}
+	while (i<`MapVoteMaxSize)
+	{
+		if (MapVoteList[i] != "")
+			MapVoteList[i] = "";
+		++i;
+	}
+}
+
+function SetFixedNextMap(string MapName)
+{
+	NextMap = Mapname;
+
+	MapVotesSize = 0;
+}
+
+function DisableMapVotes()
+{
+	bChangeMapVotesAvailable = false;
+
+	`log("Disabling map votes for 900s");
+
+	SetTimer(900.f, false, nameof(ResetMapVotesTime));
+}
+
+function ResetMapVotesTime()
+{
+	`log("Map votes are now enabled");
+
+	bChangeMapVotesAvailable = true;
+}
+
+function GetPurchaseSystem()
+{
+	PurchaseSystem = Rx_Game(WorldInfo.Game).GetPurchaseSystem();	
+	buildingArmorPercentage = Rx_Game(WorldInfo.Game).buildingArmorPercentage;
+	bEnableCommanders = Rx_Game(WorldInfo.Game).bEnableCommanders;
+	
+	if(Rx_Game(WorldInfo.Game).bBotsDisabled == true || Rx_Game(WorldInfo.Game).bBotVotesDisabled == true)
+	{
+		bEnableBotVotes = false;
+	} else {
+		bEnableBotVotes = true;
+	}
+}
+
+function VehChangedTeam(UTVehicle rxVehicle) {
+	Rx_Game(WorldInfo.Game).VehicleManager.vehChangedTeam(rxVehicle);
+}
+
+simulated event ReplicatedEvent(name VarName)
+{
+	if ( VarName == 'bMatchHasBegun' )
+	{
+		if(bMatchHasBegun) {
+			SetTimer(1.0, false, 'InitMICs');
+		}		
+	}
+	else if ( VarName == 'AOW_WinPct' )
+	{
+		SetWinPct(AOW_WinPct); 
+	}
+	else
+		super.ReplicatedEvent(VarName);
+}
+
+simulated function InitMICs()
+{
+	if(Rx_HUD(GetALocalPlayerController().myHUD).Scoreboard != None)
+	{
+		if (Rx_HUD(GetALocalPlayerController().myHUD).Scoreboard.bMovieIsOpen) {
+			Rx_HUD(GetALocalPlayerController().myHUD).Scoreboard.Close(true);
+		}
+		Rx_HUD(GetALocalPlayerController().myHUD).Scoreboard = None;
+	}
+	GetNightVisionMIC();
+	GetGlobalParticleMICList();
+	SetGlobalStealthAddTranslucencyBias();
+	SetGlobalStealthEffectMultiplier();
+	SetGlobalStealthVisibilityMultiplier();
+	UDKEmitterPool(WorldInfo.MyEmitterPool).MaxActiveEffects=MaxActiveEmitters;
+	
+	//Weapon Overlay Material setup
+	SetupWeaponOverlays(); 
+	CreateCustomRxWeaponOverlays();
+	 
+}
+
+simulated function GetNightVisionMIC()
+{
+	local float NightVisionMultiplier;
+	local float NightVisionContrast;
+
+	NightVisionMultiplier = GetNightVisionMultiplier();
+	NightVisionContrast = GetNightVisionContrast();
+	if(NightVisionMIC != None)
+	{
+		NightVisionMIC.SetScalarParameterValue('NightVisionMultiplier', NightVisionMultiplier);
+		NightVisionMIC.SetScalarParameterValue('NightVisionContrast', NightVisionContrast);
+	}
+}
+
+simulated function GetGlobalParticleMICList()
+{
+	local int i;
+	local float GlobalParticleValue;
+	local float GlobalSecondaryParticleValue;
+
+	GlobalParticleValue = GetGlobalParticleValue();
+	GlobalSecondaryParticleValue = GetGlobalSecondaryParticleValue();
+	for(i = 0; i < GlobalParticleMIC.Length; i++)
+	{
+		if(GlobalParticleMIC[i] != None)
+		{
+			GlobalParticleMIC[i].SetScalarParameterValue('GlobalParticleValue', GlobalParticleValue);
+			GlobalParticleMIC[i].SetScalarParameterValue('GlobalSecondaryParticleValue', GlobalSecondaryParticleValue);
+		}
+	}
+}
+
+simulated function float GetNightVisionMultiplier()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.NightVisionMultiplier;
+	}
+	else {
+		return 200.0;
+	}
+}
+
+simulated function float GetNightVisionContrast()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.NightVisionContrast;
+	}
+	else
+		return 2.0;
+}
+
+simulated function float GetGlobalParticleValue()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.GlobalParticleValue;
+	}
+	else
+		return 1.0;
+}
+ 
+simulated function float GetGlobalSecondaryParticleValue()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.GlobalSecondaryParticleValue;
+	}
+	else
+		return 1.0;
+}
+
+simulated function float GetGlobalStealthAddTranslucencyBias()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.GlobalStealthAddTranslucencyBias;
+	}
+	else
+		return 0.5;
+}
+
+simulated function SetGlobalStealthAddTranslucencyBias()
+{
+	local float GlobalStealthAddTranslucencyBias;
+
+	GlobalStealthAddTranslucencyBias = GetGlobalStealthAddTranslucencyBias();
+	if(GlobalStealthAddTranslucencyBiasMIC != None)
+	{
+		GlobalStealthAddTranslucencyBiasMIC.SetScalarParameterValue('AddTranslucent_Bias', GlobalStealthAddTranslucencyBias);
+		VehicleCloakCamoMIC.SetScalarParameterValue('AddTranslucent_Bias', GlobalStealthAddTranslucencyBias);
+	}
+}
+
+simulated function float GetGlobalStealthEffectMultiplier()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.GlobalStealthEffectMultiplier;
+	}
+	else
+		return 1.0;
+}
+
+simulated function SetGlobalStealthEffectMultiplier()
+{
+	local float GlobalStealthEffectMultiplier;
+
+	GlobalStealthEffectMultiplier = GetGlobalStealthEffectMultiplier();
+	if(GlobalStealthEffectMultiplierMIC != None)
+	{
+		GlobalStealthEffectMultiplierMIC.SetScalarParameterValue('Stealth_Effect_Multiplier', GlobalStealthEffectMultiplier);
+		VehicleCloakCamoMIC.SetScalarParameterValue('Stealth_Effect_Multiplier', GlobalStealthEffectMultiplier);
+	}
+}
+
+simulated function float GetGlobalStealthVisibilityMultiplier()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.GlobalStealthVisibilityMultiplier;
+	}
+	else
+		return 1.0;
+}
+
+simulated function SetGlobalStealthVisibilityMultiplier()
+{
+	local float GlobalStealthVisibilityMultiplier;
+
+	GlobalStealthVisibilityMultiplier = GetGlobalStealthVisibilityMultiplier();
+	if(GlobalStealthVisibilityMultiplierMIC != None)
+	{
+		GlobalStealthVisibilityMultiplierMIC.SetScalarParameterValue('Stealth_Visibility_Multiplier', GlobalStealthVisibilityMultiplier);
+		VehicleCloakCamoMIC.SetScalarParameterValue('Stealth_Visibility_Multiplier', GlobalStealthVisibilityMultiplier);
+	}
+}
+
+/**
+  *  Update Character global parameters
+ **/
+
+simulated function float GetCharacterGdiBrightness()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.CharacterGdiBrightness;
+	}
+	else
+		return 1.0;
+}
+
+simulated function SetCharacterGdiBrightness()
+{
+	local float CharacterGdiBrightness;
+
+	CharacterGdiBrightness = GetCharacterGdiBrightness();
+	if(CharacterGdiBrightnessMIC != None)
+	{
+		CharacterGdiBrightnessMIC.SetScalarParameterValue('GlobalCharacterBrightness', CharacterGdiBrightness);
+	}
+}
+
+simulated function float GetCharacterNodBrightness()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.CharacterNodBrightness;
+	}
+	else
+		return 1.0;
+}
+
+simulated function SetCharacterNodBrightness()
+{
+	local float CharacterNodBrightness;
+
+	CharacterNodBrightness = GetCharacterNodBrightness();
+	if(CharacterNodBrightnessMIC != None)
+	{
+		CharacterNodBrightnessMIC.SetScalarParameterValue('GlobalCharacterBrightness', CharacterNodBrightness);
+	}
+}
+
+simulated function LinearColor GetCharacterReflection()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.CharacterReflection;
+	}
+	else
+		return MakeLinearColor(1,1,1,1);
+}
+
+simulated function SetCharacterReflection()
+{
+	local LinearColor CharacterReflection;
+
+	CharacterReflection = GetCharacterReflection();
+	if(CharacterReflectionMIC != None)
+	{
+		CharacterReflectionMIC.SetVectorParameterValue('Reflection_Colour', CharacterReflection);
+	}
+}
+
+simulated function TextureCube GetCharacterReflectionTexture()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.CharacterReflectionTexture;
+	}
+	else
+		return TextureCube'WP_All.Materials.M_WP_All_EnvMap01';
+}
+
+simulated function SetCharacterReflectionTexture()
+{
+	local TextureCube CharacterReflectionTexture;
+
+	CharacterReflectionTexture = GetCharacterReflectionTexture();
+	if(CharacterReflectionTextureMIC != None)
+	{
+		CharacterReflectionTextureMIC.SetTextureParameterValue('CubeMap_Exterior', CharacterReflectionTexture);
+	}
+}
+
+/**
+  *  Update Vehicle global parameters
+ **/
+
+
+simulated function float GetVehicleGdiBrightness()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.VehicleGdiBrightness;
+	}
+	else
+		return 1.0;
+}
+
+simulated function SetVehicleGdiBrightness()
+{
+	local float VehicleGdiBrightness;
+
+	VehicleGdiBrightness = GetVehicleGdiBrightness();
+	if(VehicleGdiBrightnessMIC != None)
+	{
+		VehicleGdiBrightnessMIC.SetScalarParameterValue('GlobalVehicleBrightness', VehicleGdiBrightness);
+		VehicleGdiAdaptiveBrightnessMIC.SetScalarParameterValue('GlobalVehicleBrightness', VehicleGdiBrightness);
+		VehicleGdiPBRBrightnessMIC.SetScalarParameterValue('GlobalVehicleBrightness', VehicleGdiBrightness);
+	}
+}
+
+simulated function float GetVehicleNodBrightness()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.VehicleNodBrightness;
+	}
+	else
+		return 1.0;
+}
+
+simulated function SetVehicleNodBrightness()
+{
+	local float VehicleNodBrightness;
+
+	VehicleNodBrightness = GetVehicleNodBrightness();
+	if(VehicleNodBrightnessMIC != None)
+	{
+		VehicleNodBrightnessMIC.SetScalarParameterValue('GlobalVehicleBrightness', VehicleNodBrightness);
+		VehicleNodAdaptiveBrightnessMIC.SetScalarParameterValue('GlobalVehicleBrightness', VehicleNodBrightness);
+		VehicleNodPBRBrightnessMIC.SetScalarParameterValue('GlobalVehicleBrightness', VehicleNodBrightness);
+	}
+}
+
+simulated function LinearColor GetVehicleReflection()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.VehicleReflection;
+	}
+	else
+		return MakeLinearColor(1,1,1,1);
+}
+
+simulated function SetVehicleReflection()
+{
+	local LinearColor VehicleReflection;
+
+	VehicleReflection = GetVehicleReflection();
+	if(VehicleReflectionMIC != None)
+	{
+		VehicleReflectionMIC.SetVectorParameterValue('Reflection_Colour', VehicleReflection);
+		VehicleAdaptiveReflectionMIC.SetVectorParameterValue('Reflection_Colour', VehicleReflection);
+	}
+}
+
+simulated function TextureCube GetVehicleReflectionTexture()
+{
+	local Rx_MapInfo MapInfo;
+
+	MapInfo = Rx_MapInfo(WorldInfo.GetMapInfo());
+	if(MapInfo != None)
+	{
+		return MapInfo.VehicleReflectionTexture;
+	}
+	else
+		return TextureCube'WP_All.Materials.M_WP_All_EnvMap01';
+}
+
+simulated function SetVehicleReflectionTexture()
+{
+	local TextureCube VehicleReflectionTexture;
+
+	VehicleReflectionTexture = GetVehicleReflectionTexture();
+	if(VehicleReflectionTextureMIC != None)
+	{
+		VehicleReflectionTextureMIC.SetTextureParameterValue('CubeMap_Exterior', VehicleReflectionTexture);
+		VehicleAdaptiveReflectionMIC.SetTextureParameterValue('CubeMap_Exterior', VehicleReflectionTexture);
+	}
+}
+
+
+   
+/**
+  * returns true if P1 should be sorted before P2
+  */
+simulated function bool InOrder( PlayerReplicationInfo P1, PlayerReplicationInfo P2 )
+{
+	// spectators are sorted last
+   if( P1.bOnlySpectator )
+   {
+	   return P2.bOnlySpectator;
+   }
+   else if ( P2.bOnlySpectator )
+	{
+		return true;
+	}
+
+   // sort out bots
+   if (P1.bBot)
+   {
+      return P2.bBot;
+   }
+   else if (P2.bBot)
+   {
+      return true;
+   }
+   
+	// sort by Score
+   if( P1.Score < P2.Score )
+	{
+		return false;
+	}
+   if( P1.Score == P2.Score )
+   {
+      // sort by kills
+      if ( (Rx_PRI(P1) != none && Rx_PRI(P2) != none) && ( Rx_PRI(P1).GetRenKills() > Rx_PRI(P2).GetRenKills() ) )
+		   return true;
+		   
+		// sort by deaths
+	   if ( P1.Deaths > P2.Deaths )
+		   return false;
+   }
+   return true;
+}
+
+//ha..
+function Rx_Pri FindPlayerByNick( string PlayerID )
+{
+   local int i;
+
+   for( i=0; i<PRIArray.Length; i++ )
+   {
+      if(InStr(Caps(PRIArray[i].PlayerName), Caps(PlayerID)) >= 0 )
+         return Rx_Pri(PRIArray[i]);
+   }
+
+   return none;
+}
+
+simulated function MapVotesInc(int i) {
+	MapVotes[i]++;
+}
+
+simulated function MapVotesDec(int i) {
+	MapVotes[i]--;
+}
+
+simulated function int GetMapVote() {
+	local int i,MaxVotes,VotedMapIndex;
+
+	VotedMapIndex = -1;
+	for(i = 0; i < MapVotesSize; i++) {
+		if(MapVotes[i] > MaxVotes) {
+			MaxVotes = MapVotes[i];
+			VotedMapIndex = i;
+		}
+	}
+	return VotedMapIndex;
+}
+
+simulated function string GetMapVoteName()
+{
+	local string BasePackageName;
+	
+	BasePackageName = MapVoteList[ GetMapVote() != -1 ? GetMapVote() : 0 ];
+		
+	//If it has a day/night version, give us a random seed 
+	if(MapPackageHasDayNight(BasePackageName)) 
+	{
+		if(Rand(2) == 0)
+			return BasePackageName$"_Day" ;
+		else
+			return BasePackageName$"_Night";
+	}
+	else
+		return BasePackageName;
+}
+
+function bool MapPackageHasDayNight(string ThePackage)
+{
+	return false;
+}
+
+function ResetMapVotes() {
+	local int i;
+
+	for(i = 0; i < MapVotesSize; i++) {
+		MapVotes[i] = 0;
+	}
+}
+
+function GetCanBotsCheat()
+{
+	bCanRequestCheatBots = Rx_Game(WorldInfo.Game).bUnlockCheatingBots;
+}
+
+simulated function StartMatch()
+{
+	super.StartMatch();
+	GetCanBotsCheat();
+	if(WorldInfo.Netmode != NM_DedicatedServer) {
+		GetNightVisionMIC();
+		GetGlobalParticleMICList();
+		SetGlobalStealthAddTranslucencyBias();
+		SetGlobalStealthEffectMultiplier();
+		SetGlobalStealthVisibilityMultiplier();
+		SetCharacterGdiBrightness();
+		SetCharacterNodBrightness();
+		SetCharacterReflection();
+		SetCharacterReflectionTexture();
+		SetVehicleGdiBrightness();
+		SetVehicleNodBrightness();
+		SetVehicleReflection();
+		SetVehicleReflectionTexture();
+		UDKEmitterPool(WorldInfo.MyEmitterPool).MaxActiveEffects=MaxActiveEmitters;
+	}
+}
+
+simulated function FindORI()
+{
+	local Rx_ORI ORI;
+		
+		foreach AllActors(class'Rx_ORI', ORI)
+		{
+			ObjectiveManager = ORI ;
+			ClearTimer('FindORI'); //found, stop. 
+			break;	
+		}
+}
+
+
+function SetAwards(byte ForTeam,string MVPA, string BestOPA, string BestDPA, string BestSPA)
+{
+	MVP[ForTeam]=MVPA;
+	BestOP[ForTeam]=BestOPA;
+	BestDP[ForTeam]=BestDPA;
+	BestSP[ForTeam]=BestSPA;
+
+	bnetdirty=true;
+}
+
+simulated function SetupWeaponOverlays()
+{
+	local int i; 
+	local MaterialInstanceConstant MIC;
+	//Simplified system for weapon buffs	
+	
+	CreateCustomRxWeaponOverlays();
+	
+	for(i=0;i<WeaponOverlays.Length;i++)
+	{	
+		MIC=MaterialInstanceConstant(WeaponOverlays[i]);
+
+		if(MIC != none) 
+		{
+				//Don't be so overbearingly large on weapons 
+				MIC.SetScalarParameterValue('Opacity', 0.10);
+				MIC.SetScalarParameterValue('Inflate', 0.10);
+		}
+	}
+}
+
+simulated function CreateCustomRxWeaponOverlays()
+{
+	local class<Rx_StatModifierInfo> SM; 
+	local MaterialInstanceConstant TempMIC;
+	
+	foreach StatClasses (SM)
+	{
+		 TempMIC = new(outer) class'MaterialInstanceConstant';
+  		 TempMIC.SetParent(MaterialInstanceConstant'RenX_AssetBase.Stealth.MI_PowerUp_Main');
+		 
+		TempMIC.SetVectorParameterValue('Effect_Colour', SM.default.EffectColor);
+		TempMIC.SetScalarParameterValue('Inflate', 0.10); //Minimize both of these effects for weapons so they don't hinder ironsights
+		TempMIC.SetScalarParameterValue('Opacity', 0.10);
+			
+		WeaponOverlays.AddItem(TempMIC); 
+	}
+}
+
+simulated function CreateListArrays(){
+	local Actor TempActor;
+	
+	foreach AllActors(class'Actor',TempActor,class'RxIfc_SpotMarker') 
+	{
+		if(RxIfc_SpotMarker(TempActor).IsEligibleSpottingMarker())
+			SpottingArray.AddItem(TempActor); 
+	}
+}
+
+reliable server function string ServerRestoreBuilding(String building, TEAM team, optional bool force, optional PlayerReplicationinfo restorer) {
+	local Rx_Building b;
+	local class<Rx_Building> buildingClass;
+
+	// To help avoid accidentally restoring a building we might not want to restore
+	if (building ~= "Rx_Building" && !force)
+		return "Error: Rx_Building can only be used with force parameter. E.g. restorebuilding Rx_Building 0 force";
+
+
+	// Handle abbreviations
+	switch (Locs(building)) // Obelisk, AGT, Hand Of Nod, Barracks, Weapons Factory, Helipad, RepairFacility, Power Plant, Refinery & TeamSilo
+	{
+		case "wf":
+			building = "Rx_Building_WeaponsFactory";
+		break;
+		case "agt":
+			building = "Rx_Building_AdvancedGuardTower";
+		break;
+		case "bar":
+			building = "Rx_Building_Barracks";
+		break;
+		case "ref":
+			building = "Rx_Building_Refinery";
+		break;
+		case "pp":
+			building = "Rx_Building_PowerPlant";
+		break;
+		case "heli":
+			building = "Rx_Building_PowerPlant";
+		break;
+		case "rep":
+			building = "Rx_Building_RepairFacility";
+		break;
+		case "silo":
+			building = "Rx_Building_TeamSilo";
+		break;
+		case "air":
+			building = "Rx_Building_AirTower";
+		break;
+		case "ob":
+			building = "Rx_Building_Obelisk";
+		break;
+		case "hon":
+			building = "Rx_Building_HandOfNod";
+		break;
+		default:
+			// Do Nothing
+		break;
+
+	}
+
+	// Load the building class
+	buildingClass = class<Rx_Building>(DynamicLoadObject("RenX_Game."$building,class'class'));
+		
+	foreach AllActors(class'Rx_Building', b)
+	{
+		if (b.TeamID != team) // Skip if not the team we want.
+			continue;
+
+		if (!b.IsDestroyed()) // Skip if not destroyed.
+			continue;
+
+		if ( (buildingClass != none && buildingClass == b.class) || ClassIsChildOf(b.class, buildingClass) || (building ~= b.GetBuildingName()) )
+		{
+			Rx_Building_Team_Internals(b.BuildingInternals).RestoreMe(restorer); // Restore building
+			return "Success: "$b.GetBuildingName$" restored";
+		}
+	}
+
+	return "Error: Building not found!";
+	
+}
+
+simulated event Timer()
+{
+	if ( (WorldInfo.Game == None) || WorldInfo.Game.MatchIsInProgress() )
+	{
+		if (bMatchHasBegun)
+		{
+			ElapsedTime++;
+		}
+
+	}
+	if ( WorldInfo.NetMode == NM_Client )
+	{
+		// sync remaining time with server once a minute
+		if ( RemainingMinute != 0 )
+		{
+			RemainingTime = RemainingMinute;
+			RemainingMinute = 0;
+		}
+	}
+	if ( (RemainingTime > 0) && !bStopCountDown )
+	{
+		if (bMatchHasBegun)
+		{
+			RemainingTime--;
+		}
+		if ( WorldInfo.NetMode != NM_Client )
+		{
+			if ( RemainingTime % 60 == 0 )
+			{
+				RemainingMinute = RemainingTime;
+			}
+		}
+	}
+
+	SetTimer(WorldInfo.TimeDilation, true);
+}
+
+simulated function SetTimeLimit(float NewTime)
+{
+	TimeLimit = NewTime; 
+	RemainingTime = NewTime;
+	RemainingMinute = RemainingTime;
+	SetTimer(WorldInfo.TimeDilation, true);
+}
+
+function SetTimeStatus(string NewStatus)
+{
+	TimeStatus = NewStatus; 
+}
+
+simulated function SetWinPct(float NewWinPct)
+{
+	local Rx_HUD RxH; 
+
+	NewWinPct = FClamp(NewWinPct,-1.0, 1.0);
+
+	AOW_WinPct = NewWinPct; 
+
+	if(WorldInfo.NetMode != NM_DedicatedServer)
+	{
+		RxH = Rx_HUD(GetALocalPlayerController().myHUD) ; 
+
+		if(RxH != none && RxH.DominationBar != none)
+		{
+			RxH.DominationBar.UpdateWinningTeam(NewWinPct > 0 ? 1 : 0);
+
+			RxH.DominationBar.UpdateWinningPercent(abs(NewWinPct)); 
+		}
+	}
+}
+
+//Only usually called when bAdminControlledMapVote is in play  
+function BeginMapVote()
+{
+    local Rx_Controller MyPlayer;
+
+    bStartRestarting = true;
+    Rx_Game(WorldInfo.Game).BeginMapVote();
+	
+    foreach WorldInfo.AllControllers(Class'Rx_Controller', MyPlayer)
+    {
+        MyPlayer.BroadcastEndgame();        
+    }    
+}
+
+simulated function bool GetMapVoteStarted()
+{
+	return !bAdminControlledMapVote || (bAdminControlledMapVote && bStartRestarting); 
+}
+
+defaultproperties
+{
+	GameClass   = class'Rx_Game'
+	bStopCountDown = false
+
+	bChangeMapVotesAvailable = true
+   
+	MaxActiveEmitters = 200
+    
+	NightVisionMIC=MaterialInstanceConstant'RenX_AssetBase.PostProcess.MI_NightVision'
+	GlobalStealthAddTranslucencyBiasMIC=MaterialInstanceConstant'RenX_AssetBase.Stealth.MI_Cloak_Enemy'
+	GlobalStealthEffectMultiplierMIC=MaterialInstanceConstant'RenX_AssetBase.Stealth.MI_Cloak_Enemy'
+	GlobalStealthVisibilityMultiplierMIC=MaterialInstanceConstant'RenX_AssetBase.Stealth.MI_Cloak_Enemy'
+	CharacterGdiBrightnessMIC=MaterialInstanceConstant'RenX_AssetBase.Characters.MI_CH_GDI'
+	CharacterNodBrightnessMIC=MaterialInstanceConstant'RenX_AssetBase.Characters.MI_CH_Nod'
+	CharacterReflectionMIC=MaterialInstanceConstant'RenX_AssetBase.Characters.MI_CH_All'
+	CharacterReflectionTextureMIC=MaterialInstanceConstant'RenX_AssetBase.Characters.MI_CH_All'
+	VehicleGdiBrightnessMIC=MaterialInstanceConstant'RenX_AssetBase.Vehicle.MI_VH_GDI'
+	VehicleGdiAdaptiveBrightnessMic=MaterialInstanceConstant'RenX_AssetBase.Vehicle.MI_VH_GDI_Adaptive'
+	VehicleGdiPBRBrightnessMic=MaterialInstanceConstant'RX_UberShader.Materials.MI_PBR_Vehicles_GDI'
+	VehicleNodBrightnessMIC=MaterialInstanceConstant'RenX_AssetBase.Vehicle.MI_VH_Nod'
+	VehicleNodAdaptiveBrightnessMic=MaterialInstanceConstant'RenX_AssetBase.Vehicle.MI_VH_Nod_Adaptive'
+	VehicleNodPBRBrightnessMic=MaterialInstanceConstant'RX_UberShader.Materials.MI_PBR_Vehicles_Nod'
+	VehicleReflectionMIC=MaterialInstanceConstant'RenX_AssetBase.Vehicle.MI_VH_All'
+	VehicleAdaptiveReflectionMIC=MaterialInstanceConstant'RenX_AssetBase.Vehicle.MI_VH_All_Adaptive'
+	VehicleReflectionTextureMIC=MaterialInstanceConstant'RenX_AssetBase.Vehicle.MI_VH_All'
+	VehicleCloakCamoMIC=MaterialInstanceConstant'RenX_AssetBase.Stealth.MI_Cloak_Enemy_Adaptive'
+	MapVotesSize = 8
+	
+	//========================================================\\
+	// ************** Particle Visual Properties *************\\
+	//========================================================\\	
+
+	GlobalParticleMIC(0)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_Dirt'
+	GlobalParticleMIC(1)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_Dirt_Slow'
+	GlobalParticleMIC(2)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_Dirt_WhiteSand'
+	GlobalParticleMIC(3)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_Dirt_YellowSand'
+	GlobalParticleMIC(4)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_Mud'
+	GlobalParticleMIC(5)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_RockDirt'
+	GlobalParticleMIC(6)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_Smoke'
+	GlobalParticleMIC(7)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_Smoke_BW'
+	GlobalParticleMIC(8)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_Smoke_Slow'
+	GlobalParticleMIC(9)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_SmokeA'
+	GlobalParticleMIC(10)=MaterialInstanceConstant'RX_FX_Munitions.Impact_Bullet.MI_Dirt_FakeLit'
+	GlobalParticleMIC(11)=MaterialInstanceConstant'RX_FX_Munitions.Impact_Bullet.MI_Dirt_Thin_FakeLit'
+	GlobalParticleMIC(12)=MaterialInstanceConstant'RX_FX_Munitions.Impact_Bullet.MI_Grain_FakeLit'
+	GlobalParticleMIC(13)=MaterialInstanceConstant'RX_FX_Munitions.Impact_Bullet.MI_Mud_FakeLit'
+	GlobalParticleMIC(14)=MaterialInstanceConstant'RX_FX_Munitions.Impact_Bullet.MI_RockDirt_FakeLit'
+	GlobalParticleMIC(15)=MaterialInstanceConstant'RX_FX_Munitions.Impact_Bullet.MI_Smoke_FakeLit'
+	GlobalParticleMIC(16)=MaterialInstanceConstant'RX_FX_Munitions.Impact_Bullet.MI_Smoke_SlowMoving_FakeLit'
+	GlobalParticleMIC(17)=MaterialInstanceConstant'RX_FX_Munitions.Impact_Bullet.MI_Smoke_Thin_FakeLit'
+	GlobalParticleMIC(18)=MaterialInstanceConstant'RX_FX_Munitions.Impact_Bullet.MI_Smoke_Thin_NotLit'
+	GlobalParticleMIC(19)=MaterialInstanceConstant'RX_FX_Munitions.Impact_Bullet.MI_WhiteSand_Thin_FakeLit'
+	GlobalParticleMIC(20)=MaterialInstanceConstant'RX_FX_Munitions.Impact_Bullet.MI_YellowSand_Thin_FakeLit'
+	GlobalParticleMIC(21)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_FloatingDirt_Unlit'   
+	GlobalParticleMIC(22)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_Mist'
+	GlobalParticleMIC(23)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_WaterRadial'
+	GlobalParticleMIC(24)=MaterialInstanceConstant'RX_FX_Munitions2.MIC.MI_Snow'
+	GlobalParticleMIC(25)=MaterialInstanceConstant'RX_FX_Munitions.shells.MI_Shell_Trail_Master'
+	
+	MVP(0) = "Some Guy's NAme"
+ 
+	//WeaponOverlays(0) = MaterialInstanceConstant'RenX_AssetBase.Stealth.MI_PowerUp_Main_Gold'
+	//WeaponOverlays(1) = MaterialInstanceConstant'RenX_AssetBase.Stealth.MI_PowerUp_Main' //Simplified.. cuz this is a lot of time wasted on this. Weapons are either buffed or they're not
+ 
+	//These need to sync up with the 'Effect_Priority' byte in the classes themselves
+	StatClasses(0) = class'Rx_StatModifierInfo_Nod_Stealth'
+	StatClasses(1) = class'Rx_StatModifierInfo_GDI_OI'
+	StatClasses(2) = class'Rx_StatModifierInfo_Nod_PTP' 
+	StatClasses(3) = class'Rx_StatModifierInfo_Nod_UTP'
+	StatClasses(4) = class'Rx_StatModifierInfo_GDI_DI'
+	StatClasses(5) = class'Rx_StatModifierInfo_ChemGrenadeDebuff'
+	StatClasses(6) = class'Rx_StatModifierInfo_Crate_Defense'
+	StatClasses(7) = class'Rx_StatModifierInfo_Crate_Speed'
+	StatClasses(8) = class'Rx_StatModifierInfo_ColdDebuff'
+	StatClasses(9) = class'Rx_StatModifierInfo_ColdDebuffGrenade'
+
+	TimeStatus = "Marathon"
+
+}

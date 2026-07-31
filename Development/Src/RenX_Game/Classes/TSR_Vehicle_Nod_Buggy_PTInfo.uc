@@ -1,0 +1,21 @@
+class TSR_Vehicle_Nod_Buggy_PTInfo extends Rx_Vehicle_PTInfo
+; 
+
+/*Base class to hold a vehicle's PT info*/
+
+DefaultProperties
+{
+		PTIconTexture	=	Texture2D'RenXPurchaseMenu.T_Icon_Veh_Nod_AttackBuggy'
+		title	    	=	"ATTACK BUGGY"
+		cost	    	=	"350"
+		iconID			=	11
+		bAircraft   	=   false
+		desc			= 	"<font size='10'>-.Vulcan Cannon\n-Light Armour\n-Fast Attack Scout\n-Driver + Passenger</font>"
+		VehicleClass	= 	class'TSR_Vehicle_Buggy'
+		
+		GDIVehicleAnnouncment = SoundNodeWave'RX_EVA_VoiceClips_Extra.ts_eva.sn_eva_unitready'
+		NodVehicleAnnouncment = SoundNodeWave'RX_EVA_VoiceClips_Extra.Nod_EVA.S_TS_CABAL_UnitReady_AttackBuggy'
+		
+		
+		
+}

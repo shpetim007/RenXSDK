@@ -1,0 +1,1 @@
+interface RxIfc_ScopedWeapon;
