@@ -1,0 +1,68 @@
+# This repository is a source overlay for an existing Renegade X SDK install.
+# Keep the SDK itself on disk, but do not commit its binaries or game assets.
+
+# Local work and recovery copies
+/.canvas-hud-package-*/
+/.codex-backup/
+/.vs/
+/.vscode/
+/.idea/
+
+# Large SDK/runtime trees
+/Binaries/
+/Engine/
+/ExampleAssets/
+/PreviewVids/
+
+# Development contains Flash assets as well as source. Keep only source.
+/Development/*
+!/Development/Src/
+
+# IDE state and non-code editor models inside Development/Src
+*.suo
+*.user
+*.ncb
+*.sdf
+*.opensdf
+*.VC.db
+*.ASE
+
+# UDKGame contains maps, cooked content, movies, screenshots, logs, compiled
+# packages, and other generated/runtime data. Keep only distributable defaults.
+/UDKGame/*
+!/UDKGame/Config/
+/UDKGame/Config/*
+!/UDKGame/Config/Default*.ini
+
+# Common generated files, archives, media, and Unreal asset/package formats
+*.log
+*.tmp
+*.bak
+*.zip
+*.7z
+*.rar
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.tga
+*.dds
+*.psd
+*.mp3
+*.wav
+*.ogg
+*.bik
+*.avi
+*.mp4
+*.swf
+*.fla
+*.upk
+*.u
+*.udk
+*.umap
+*.uxx
+
+# Windows noise
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/

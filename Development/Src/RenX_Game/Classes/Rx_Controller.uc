@@ -1394,8 +1394,8 @@ function DisableVoteMenu(optional bool Destroy = false)
 		if (VoteHandler.Disabled())
 			VoteHandler = none;
 	}
-	if(Rx_HUD(myHUD).HudMovie != None)
-		Rx_HUD(myHUD).HudMovie.SideMenuVis(false);
+	if(Rx_HUD(myHUD).CanvasMain != None)
+		Rx_HUD(myHUD).CanvasMain.SetSideMenuVisible(false);
 }
 
 function CancelCommandMenuSelection()
@@ -1845,7 +1845,8 @@ reliable client function PMHostLoopback(string SayInput)
 
 	fMsg = "<font color='"$Rx_HUD(myHUD).HostColor$"'>"@ S @"</font>";
 	Rx_HUD(myHUD).PrivateChatMessageLog $= fMsg $ "\n";
-	Rx_HUD(myHUD).HudMovie.AddChatMessage(fMsg, S);
+	if(Rx_HUD(myHUD).CanvasMain != None)
+		Rx_HUD(myHUD).CanvasMain.AddMessage(S,8.0,0);
 }
 
 function PMHostCooldown()
@@ -2827,15 +2828,13 @@ state Dead
         if(LastHitLoc != vect(0,0,0) && LastHitLocBlendPct < 1.0f && DesiredFOV > 10.0f)
         	DesiredFOV -= DeltaTime * (VSize(LastHitLoc - Viewtarget.location) / 100.0f);
 
-		if ( Rx_HUD(myHUD) != None && !IsSpectating() && (MinRespawnDelay+1 - GetTimerCount() > 1) && (MinRespawnDelay - GetTimerCount()) <= MinRespawnDelay)
+		if ( Rx_HUD(myHUD) != None && Rx_HUD(myHUD).CanvasMain != None && !IsSpectating() && (MinRespawnDelay+1 - GetTimerCount() > 1) && (MinRespawnDelay - GetTimerCount()) <= MinRespawnDelay)
 		{
-			Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetVisible(true);
-			Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetString("htmlText", "Respawn available in"@ int(MinRespawnDelay+1 - GetTimerCount()));
+			Rx_HUD(myHUD).CanvasMain.SetGameplayTip("Respawn available in"@int(MinRespawnDelay+1-GetTimerCount()));
 		}
-		else if(Rx_HUD(myHUD) != None)
+		else if(Rx_HUD(myHUD) != None && Rx_HUD(myHUD).CanvasMain != None)
 		{
-			Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetString("htmlText", "");
-			Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetVisible(false);
+			Rx_HUD(myHUD).CanvasMain.SetGameplayTip("");
 		}
 	}
 
@@ -3025,7 +3024,8 @@ state Dead
 		if(WorldInfo.NetMode != NM_DedicatedServer)
 		{
 			SetTimer(1,true,'setRespawnUiCounter');
-			Rx_HUD(myHUD).HudMovie.setRespawnCounter(MinRespawnDelay);
+			if(Rx_HUD(myHUD) != None && Rx_HUD(myHUD).CanvasMain != None)
+				Rx_HUD(myHUD).CanvasMain.SetGameplayTip("Respawn available in"@int(MinRespawnDelay));
 		}
 
 		CleanOutSavedMoves();
@@ -3050,11 +3050,13 @@ state Dead
 		//if the main timer is running
 		if (GetTimerCount() != -1)
 		{
-			Rx_HUD(myHUD).HudMovie.setRespawnCounter( int(MinRespawnDelay - FFloor(GetTimerCount())) );
+			if(Rx_HUD(myHUD) != None && Rx_HUD(myHUD).CanvasMain != None)
+				Rx_HUD(myHUD).CanvasMain.SetGameplayTip("Respawn available in"@int(MinRespawnDelay-FFloor(GetTimerCount())));
 		}
 		else
 		{
-			Rx_HUD(myHUD).HudMovie.setRespawnCounter(0);
+			if(Rx_HUD(myHUD) != None && Rx_HUD(myHUD).CanvasMain != None)
+				Rx_HUD(myHUD).CanvasMain.SetGameplayTip("");
 		}
 	}
 
@@ -3080,6 +3082,9 @@ state Dead
 		LastHitLoc = vect(0,0,0);
 		StopViewShaking();
 		ClearTimer('DoForcedRespawn');
+		ClearTimer('setRespawnUiCounter');
+		if(Rx_HUD(myHUD)!=None && Rx_HUD(myHUD).CanvasMain!=None)
+			Rx_HUD(myHUD).CanvasMain.SetGameplayTip("");
 	}
 
 Begin:
@@ -7327,50 +7332,28 @@ exec function ForceGarbagecollectionFullPurge()
 reliable client function PlayStartupMessage(byte StartupStage)
 {
 	local String ReadyMessage;
-	if(Rx_HUD(myHUD) == None || Rx_HUD(myHUD).HudMovie == None)
+	local String CountdownMessage;
+
+	if(Rx_HUD(myHUD) == None || Rx_HUD(myHUD).CanvasMain == None)
 		return;
 
-	Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetVisible(true);
-	Rx_HUD(myHUD).HudMovie.SubtitlesText.SetString("htmlText", "");
-
-	//setting the correct hud size. (nBab)
-	Rx_HUD(myHUD).HudMovie.ResizedScreenCheck();
-	Rx_HUD(myHUD).GIHudMovie.ResizedScreenCheck();
-
 	if(!bPlayerIsReady)
-		ReadyMessage = "You are <font color='#ff0000'>NOT READY</font>.\nPress Fire to ready up";
+		ReadyMessage = "You are NOT READY - Press Fire to ready up";
 	else
-		ReadyMessage = "You are <font color='#00ff00'>READY</font>";
+		ReadyMessage = "You are READY";
 
 	if(!bMatchcountdownStarted && StartupStage == 0)
-	{
-		Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetString("htmlText", "Waiting for other players \n\n"$ReadyMessage);
-		//set waiting text and disable keyboard input (nBab)
-		Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.counter").SetVisible(false);
-		Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.tf").SetVisible(false);
-		Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.ready").SetVisible(true);
-		Rx_HUD(myHUD).HudMovie.setReadyText("Waiting");
-		Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui").setBool("disableArrowAD",true);
-	}
+		CountdownMessage="Waiting for other players - "$ReadyMessage;
 	else if(StartupStage >= 250)
 	{
-		Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetString("htmlText", "Match begins in " $ 261 - StartupStage $"\n\n"$ReadyMessage);
+		CountdownMessage="Match begins in "$(261-StartupStage)$" - "$ReadyMessage;
 		bMatchcountdownStarted = true;
-		//set counter text (nBab)
-		Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.counter").SetVisible(true);
-		Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.tf").SetVisible(true);
-		Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.ready").SetVisible(false);
-		Rx_HUD(myHUD).HudMovie.setRespawnCounter( 261 - StartupStage );
 	}
 	else if(bMatchcountdownStarted && StartupStage >= 0)
-	{
-		Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetString("htmlText", "Match begins in " $ 5 - StartupStage $"\n\n"$ReadyMessage);
-		//set counter text (nBab)
-		Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.counter").SetVisible(true);
-		Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.tf").SetVisible(true);
-		Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.ready").SetVisible(false);
-		Rx_HUD(myHUD).HudMovie.setRespawnCounter( 5 - StartupStage );
-	}
+		CountdownMessage="Match begins in "$(5-StartupStage)$" - "$ReadyMessage;
+
+	Rx_HUD(myHUD).CanvasMain.SetSubtitle("");
+	Rx_HUD(myHUD).CanvasMain.SetGameplayTip(CountdownMessage);
 }
 
 function AdjustHdrToneMappingScale()
@@ -7892,7 +7875,8 @@ unreliable client function ClientSendFeelGoodMessage(coerce string VPString, opt
 		if(MessageSuffix == "CP")
 			FeatStr = "<font color='#00FF7F'>" $ FeatStr $ "</font>" ;
 
-		Rx_HUD(myHud).HudMovie.AddVPMessage(FeatStr, true);
+		if(Rx_HUD(myHud) != None && Rx_HUD(myHud).CanvasMain != None)
+			Rx_HUD(myHud).CanvasMain.AddMessage(FeatStr,5.0,2);
 	}
 
 
