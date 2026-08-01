@@ -8,6 +8,10 @@
 /.vscode/
 /.idea/
 
+# SDK helper launch/build scripts and the original SDK readme at repository root
+/*.bat
+/ReadMe.txt
+
 # Large SDK/runtime trees
 /Binaries/
 /Engine/

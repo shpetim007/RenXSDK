@@ -1,1 +1,0 @@
-start Binaries\Win64\UDK.exe 127.0.0.1 -log -FORCELOGFLUSH -debug -SCRIPTSTACKONWARNINGS -UTRACE -nomoviesstartup -nosteam -WINDOWED
