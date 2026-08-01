@@ -16,7 +16,6 @@ struct CanvasTextRun
 
 struct CanvasHUDMessage
 {
-	var string Text;
 	var color TextColor;
 	var float ExpireTime;
 	var byte Channel;
@@ -57,13 +56,12 @@ var Color PanelColor;
 var Color PanelBorderColor;
 var Color HealthColor;
 var Color ArmorColor;
-var Color StaminaColor;
 var Color AmmoColor;
 var Color GDIColor;
 var Color NodColor;
 var Color NeutralColor;
 var Texture2D ResourceMineIcon;
-var Texture2D ResourceVehicleIcon;
+var Texture2D ResourceVehicleIcons[2];
 var Texture2D VetRankTextures[4];
 var int CachedTeamPlayerCounts[2];
 var float NextTeamCountRefreshTime;
@@ -93,6 +91,9 @@ var float LayoutMinimapScale;
 var float LayoutMessageScale;
 var float LayoutScoreboardScale;
 var float LayoutOverviewScale;
+var Texture2D WhiteTexture;
+var array<CanvasUVTri> ActiveSegmentTriangles;
+var array<CanvasUVTri> InactiveSegmentTriangles;
 
 function Update(float DeltaTime, Rx_HUD HUD)
 {
@@ -187,7 +188,6 @@ function AddMessage(string InText, optional float LifeTime = 8.0, optional byte 
 
 	// Keep the legacy font-color spans. They encode team chat, global-chat
 	// sender, killer and victim colors and are rendered natively below.
-	NewMessage.Text = InText;
 	NewMessage.TextColor = InColor;
 	ParseRichText(InText,InColor,NewMessage.Runs);
 	if(Channel==0 || Channel==1)
@@ -279,7 +279,6 @@ function Draw()
 	if(bShowFullScoreboard)
 	{
 		DrawFullScoreboard();
-		DrawMessages();
 		return;
 	}
 	DrawMatchInfo();
@@ -297,62 +296,16 @@ function Draw()
 	DrawHitMarker();
 }
 
-function DrawRadar()
-{
-	local Pawn CenterPawn, P;
-	local vector Delta;
-	local float S, RadarSize, X, Y, DX, DY, Range;
-	local Color DotColor;
-	local bool bFriendly, bSpotted;
-
-	CenterPawn = GetDisplayPawn();
-	if(CenterPawn == None)
-		return;
-
-	S = GetScale();
-	RadarSize = 104*S;
-	X = Canvas.SizeX-RadarSize-12*S;
-	Y = 58*S;
-	Range = 9000.0;
-	DrawPanel(X,Y,RadarSize,RadarSize,PanelColor);
-	DrawTextAt("RADAR", X+RadarSize*0.5, Y+5*S, ColorWhite, 0.42*S, 1);
-
-	Canvas.SetDrawColor(NeutralColor.R,NeutralColor.G,NeutralColor.B,255);
-	Canvas.SetPos(X+RadarSize*0.5-2*S,Y+RadarSize*0.5-2*S);
-	Canvas.DrawRect(4*S,4*S);
-
-	foreach RenxHud.WorldInfo.AllPawns(class'Pawn', P)
-	{
-		if(P == None || P == CenterPawn || P.Health <= 0)
-			continue;
-
-		bFriendly = P.GetTeamNum() == RenxHud.PlayerOwner.GetTeamNum();
-		bSpotted = RenxHud.SpotTargets.Find(P) != INDEX_NONE;
-		if(!bFriendly && !bSpotted)
-			continue;
-
-		Delta = P.Location-CenterPawn.Location;
-		if(VSize2D(Delta) > Range)
-			continue;
-
-		DX = FClamp(Delta.X/Range,-1,1)*RadarSize*0.43;
-		DY = FClamp(Delta.Y/Range,-1,1)*RadarSize*0.43;
-		DotColor = bFriendly ? GDIColor : NodColor;
-		Canvas.SetDrawColor(DotColor.R,DotColor.G,DotColor.B,230);
-		Canvas.SetPos(X+RadarSize*0.5+DX-1*S,Y+RadarSize*0.5+DY-1*S);
-		Canvas.DrawRect(3*S,3*S);
-	}
-}
-
 function DrawFullScoreboard()
 {
 	local Rx_GRI GRI;
 	local PlayerReplicationInfo PRI;
 	local Rx_PRI RPRI;
-	local int i, TeamIndex, TeamRow, GDIPlayers, NodPlayers;
-	local float S, X, Y, W, H, ColumnW, RowH, RowY;
+	local int i, TeamIndex, TeamRow;
+	local float S, PanelX, X, Y, W, H, ColumnW, RowH, RowY;
+	local float BuildingColumnW, BuildingY, BuildingH;
 	local string Line, PlayerName, RoleText;
-	local Color TeamColor, RowColor, TeamPanelColor;
+	local Color TeamColor, PlayerColor, RowColor, TeamPanelColor;
 
 	GRI = Rx_GRI(RenxHud.WorldInfo.GRI);
 	if(GRI == None)
@@ -361,11 +314,18 @@ function DrawFullScoreboard()
 	S = GetScale()*LayoutScoreboardScale;
 	W = FMin(Canvas.SizeX*0.96-2*LayoutHorizontalSafeZone*S, 1120*S);
 	H = FMin(Canvas.SizeY*0.92-2*LayoutVerticalSafeZone*S, 662*S);
-	X = (Canvas.SizeX-W)*0.5+LayoutHorizontalOffset*S;
+	PanelX = (Canvas.SizeX-W)*0.5+LayoutHorizontalOffset*S;
+	X = PanelX;
 	Y = (Canvas.SizeY-H)*0.5+(LayoutVerticalSafeZone+LayoutVerticalOffset)*S;
 	RowH = 17*S;
-	ColumnW = (W-24*S)*0.5;
+	BuildingColumnW=62*S;
+	ColumnW = (W-40*S-2*BuildingColumnW)*0.5;
 	RefreshScoreboardCache(GRI);
+	// The Tab screen is an exclusive top layer. Cover gameplay components that
+	// rendered earlier in PostRender, then draw only scoreboard-owned content.
+	Canvas.SetDrawColor(0,0,0,255);
+	Canvas.SetPos(0,0);
+	Canvas.DrawRect(Canvas.SizeX,Canvas.SizeY);
 	DrawPanel(X,Y,W,H,PanelColor);
 	DrawAccent(X,Y,W*0.5,3*S,GDIColor);
 	DrawAccent(X+W*0.5,Y,W*0.5,3*S,NodColor);
@@ -373,11 +333,11 @@ function DrawFullScoreboard()
 	DrawTextAt(Caps(RenxHud.WorldInfo.GetMapName(true)), X+W*0.5, Y+30*S, NeutralColor, 0.45*S, 1);
 
 	if(GRI.bMatchIsOver)
-		DrawEndGameHeader(GRI,Y+49*S);
+		DrawEndGameHeader(GRI,X+W*0.5,Y+49*S,S);
 
 	for(TeamIndex=TEAM_GDI; TeamIndex<=TEAM_NOD; ++TeamIndex)
 	{
-		X = (Canvas.SizeX-W)*0.5+LayoutHorizontalOffset*S+8*S+TeamIndex*(ColumnW+8*S);
+		X = PanelX+14*S+BuildingColumnW+TeamIndex*(ColumnW+12*S);
 		RowY = Y+(GRI.bMatchIsOver ? 146 : 58)*S;
 		TeamColor = TeamIndex == TEAM_GDI ? GDIColor : NodColor;
 		TeamPanelColor=PanelColor;
@@ -406,12 +366,10 @@ function DrawFullScoreboard()
 			RPRI = Rx_PRI(PRI);
 			if(RPRI == None || PRI.bIsSpectator || RPRI.bIsScripted || PRI.GetTeamNum() != TeamIndex)
 				continue;
-			if(TeamIndex == TEAM_GDI)
-				++GDIPlayers;
-			else
-				++NodPlayers;
 			if(TeamRow < 18)
 			{
+				PlayerColor=PRI==RenxHud.PlayerOwner.PlayerReplicationInfo ? NeutralColor
+					: TeamColor;
 				RowColor=TeamColor;
 				if(PRI==RenxHud.PlayerOwner.PlayerReplicationInfo)
 					RowColor.A=52;
@@ -424,9 +382,7 @@ function DrawFullScoreboard()
 				if(RowColor.A>0)
 					DrawAccent(X+2*S,RowY-1*S,ColumnW-4*S,RowH,RowColor);
 				PlayerName=(RPRI.bIsCommander ? "[C] " : "")$PRI.GetHumanReadableName();
-				TeamColor=PRI==RenxHud.PlayerOwner.PlayerReplicationInfo ? NeutralColor
-					: (TeamIndex==TEAM_GDI ? GDIColor : NodColor);
-				DrawTextAt(PlayerName,X+5*S,RowY,TeamColor,0.46*S,0);
+				DrawTextAt(PlayerName,X+5*S,RowY,PlayerColor,0.46*S,0);
 				RoleText=GetScoreboardRole(RPRI);
 				DrawTextAt(RoleText,X+ColumnW*0.62,RowY,ColorWhite,0.33*S,2);
 				Line=RPRI.GetRenScore()$"  "$RPRI.GetRenKills()$"  "$RPRI.GetVehicleKills()
@@ -438,10 +394,15 @@ function DrawFullScoreboard()
 		}
 		DrawTextAt(TeamRow$" PLAYERS",X+ColumnW*0.5,RowY+3*S,TeamColor,0.43*S,1);
 	}
-	X=(Canvas.SizeX-W)*0.5+LayoutHorizontalOffset*S;
-	DrawScoreboardBuildings(X+8*S,Y+H-70*S,W-16*S);
+	BuildingY=Y+(GRI.bMatchIsOver ? 146 : 58)*S-5*S;
+	BuildingH=H-(GRI.bMatchIsOver ? 222 : 134)*S;
+	DrawScoreboardBuildingColumn(CachedGDIBuildings,PanelX+8*S,BuildingY,
+		BuildingColumnW,BuildingH);
+	DrawScoreboardBuildingColumn(CachedNodBuildings,PanelX+W-8*S-BuildingColumnW,
+		BuildingY,BuildingColumnW,BuildingH);
+	DrawScoreboardBuildings(PanelX+8*S,Y+H-70*S,W-16*S,S);
 	if(GRI.bMatchIsOver)
-		DrawEndGameMapVote(GRI,X+W*0.2,Y+H-166*S,W*0.6);
+		DrawEndGameMapVote(GRI,PanelX+W*0.2,Y+H-166*S,W*0.6,S);
 }
 
 function RefreshScoreboardCache(Rx_GRI GRI)
@@ -508,7 +469,8 @@ function DrawOverviewMap()
 	Canvas.DrawRect(Canvas.SizeX,Canvas.SizeY);
 	// Give the tactical map roughly two thirds of the horizontal layout while
 	// respecting the screen-height limit of its square terrain.
-	MapSize = FMin(Canvas.SizeY*0.88,Canvas.SizeX*0.667)*LayoutOverviewScale;
+	MapSize = FMin(Canvas.SizeY*0.88,Canvas.SizeX*0.667)
+		*LayoutGlobalScale*LayoutOverviewScale;
 	MapSize = FMin(MapSize,Canvas.SizeY-(60+2*LayoutVerticalSafeZone)*S);
 	X = Canvas.SizeX-MapSize-(18+LayoutHorizontalSafeZone-LayoutHorizontalOffset)*S;
 	Y = (26+LayoutVerticalSafeZone+LayoutVerticalOffset)*S;
@@ -761,102 +723,205 @@ function DrawOverviewBuildingRows(float X, float Y, float W, float H)
 function DrawOverviewBuildingTeamRow(array<Rx_Building> Buildings,
 	float X, float Y, float W, float H, bool bRightAlign)
 {
-	local Rx_Building B;
 	local int I;
-	local float S, CellW, StartX, CellX, IconSize, HealthPct, ArmorPct;
-	local Color C, IconColor;
-	local string StateText;
+	local float S, CellW, StartX, CellX;
 
 	if(Buildings.Length==0 || H<=8)
 		return;
 	S=GetScale();
 	CellW=FMin(66*S,(W-3*S)/Buildings.Length);
 	StartX=bRightAlign ? X+W-CellW*Buildings.Length : X;
-	IconSize=FMin(40*S,FMin(CellW-7*S,H-22*S));
 	for(I=0;I<Buildings.Length;++I)
 	{
-		B=Buildings[I];
 		CellX=StartX+I*CellW;
-		C=B.GetTeamNum()==TEAM_GDI ? GDIColor : NodColor;
-		IconColor=C;
-		if(B.GetTeamNum()==TEAM_GDI)
-		{
-			// Keep GDI building artwork yellow-gold instead of the darker
-			// orange used by compact score accents.
-			IconColor.R=255; IconColor.G=222; IconColor.B=60; IconColor.A=255;
-		}
-		if(B.IsDestroyed())
-		{
-			IconColor.R=125; IconColor.G=128; IconColor.B=132; IconColor.A=230;
-			HealthPct=0;
-			ArmorPct=0;
-			if(B.GetRevivalTime()>0
-				|| (B.BuildingInternals!=None && B.BuildingInternals.GetReviveIsAvailable()))
-				StateText=B.GetTimerString(B.GetRevivalTime());
-			else
-				StateText="DESTROYED";
-		}
-		else
-		{
-			HealthPct=B.GetMaxHealth()>0
-				? FClamp(float(B.GetHealth())/B.GetMaxHealth(),0.0,1.0) : 0.0;
-			ArmorPct=B.GetMaxArmor()>0
-				? FClamp(float(B.GetArmor())/B.GetMaxArmor(),0.0,1.0) : 0.0;
-			StateText="";
-		}
-		DrawPanel(CellX,Y,CellW-3*S,H,PanelColor);
-		DrawAccent(CellX,Y,CellW-3*S,2*S,C);
-		if(StateText!="")
-			DrawTextAt(StateText,CellX+(CellW-3*S)*0.5,Y+3*S,
-				IconColor,0.25*S,1);
-		if(B.IconTexture!=None)
-			DrawTextureFit(B.IconTexture,CellX+(CellW-3*S-IconSize)*0.5,
-				Y+10*S,IconSize,IconSize,IconColor);
-		else
-			DrawTextAt(Left(Caps(B.GetBuildingName()),7),
-				CellX+(CellW-3*S)*0.5,Y+18*S,IconColor,0.28*S,1);
-		DrawBar(CellX+3*S,Y+H-10*S,CellW-9*S,4*S,HealthPct,1,C);
-		DrawBar(CellX+3*S,Y+H-5*S,CellW-9*S,3*S,ArmorPct,1,ArmorColor);
+		DrawBuildingStatusCell(Buildings[I],CellX,Y,CellW-3*S,H,S);
 	}
 }
 
-function DrawEndGameHeader(Rx_GRI GRI, float Y)
+function DrawScoreboardBuildingColumn(array<Rx_Building> Buildings,
+	float X, float Y, float W, float H)
 {
-	local float S, TimeLeft;
+	local int I;
+	local float S, CellH;
+
+	if(Buildings.Length==0 || H<=8)
+		return;
+	S=GetScale()*LayoutScoreboardScale;
+	CellH=FMin(68*S,(H-3*S)/Buildings.Length);
+	for(I=0;I<Buildings.Length;++I)
+		DrawBuildingStatusCell(Buildings[I],X,Y+I*CellH,W,CellH-3*S,S);
+}
+
+function DrawBuildingStatusCell(Rx_Building B, float X, float Y,
+	float W, float H, float S)
+{
+	local float IconSize, ArtworkSize, HealthPct, ArmorPct;
+	local Color C, IconColor, ArtworkColor;
+	local string StateText;
+	local Texture2D StatusTexture;
+
+	if(B==None || W<=8 || H<=12)
+		return;
+	C=B.GetTeamNum()==TEAM_GDI ? GDIColor : NodColor;
+	IconColor=C;
+	ArtworkColor=ColorWhite;
+	if(B.GetTeamNum()==TEAM_GDI)
+	{
+		// Keep GDI building artwork yellow-gold instead of the darker
+		// orange used by compact score accents.
+		IconColor.R=255; IconColor.G=222; IconColor.B=60; IconColor.A=255;
+	}
+	if(B.IsDestroyed())
+	{
+		IconColor.R=125; IconColor.G=128; IconColor.B=132; IconColor.A=230;
+		// The shipped overview has no separate destroyed silo artwork.
+		if(Rx_Building_TeamSilo_GDI(B)!=None || Rx_Building_TeamSilo_Nod(B)!=None)
+			ArtworkColor=IconColor;
+		if(B.GetRevivalTime()>0
+			|| (B.BuildingInternals!=None && B.BuildingInternals.GetReviveIsAvailable()))
+			StateText=B.GetTimerString(B.GetRevivalTime());
+		else
+			StateText="DESTROYED";
+	}
+	else
+	{
+		HealthPct=B.GetMaxHealth()>0
+			? FClamp(float(B.GetHealth())/B.GetMaxHealth(),0.0,1.0) : 0.0;
+		ArmorPct=B.GetMaxArmor()>0
+			? FClamp(float(B.GetArmor())/B.GetMaxArmor(),0.0,1.0) : 0.0;
+	}
+	IconSize=FMin(40*S,FMin(W-7*S,H-22*S));
+	ArtworkSize=IconSize*2.0;
+	StatusTexture=GetBuildingStatusTexture(B);
+	DrawPanel(X,Y,W,H,PanelColor);
+	DrawAccent(X,Y,W,2*S,C);
+	if(StateText!="")
+		DrawTextAt(StateText,X+W*0.5,Y+3*S,IconColor,0.25*S,1);
+	if(StatusTexture!=None)
+		DrawTextureAspect(StatusTexture,X+(W-ArtworkSize)*0.5,
+			Y+10*S-(ArtworkSize-IconSize)*0.5,
+			ArtworkSize,ArtworkSize,ArtworkColor);
+	else if(B.IconTexture!=None)
+		DrawTextureAspect(B.IconTexture,X+(W-IconSize)*0.5,Y+10*S,
+			IconSize,IconSize,IconColor);
+	else
+		DrawTextAt(Left(Caps(B.GetBuildingName()),7),X+W*0.5,Y+18*S,
+			IconColor,0.28*S,1);
+	DrawBar(X+3*S,Y+H-10*S,W-6*S,4*S,HealthPct,1,C);
+	DrawBar(X+3*S,Y+H-5*S,W-6*S,3*S,ArmorPct,1,ArmorColor);
+}
+
+function Texture2D GetBuildingStatusTexture(Rx_Building B)
+{
+	local bool bDestroyed;
+
+	if(B==None)
+		return None;
+	bDestroyed=B.IsDestroyed();
+
+	// These are the full-resolution images embedded by the Scaleform overview.
+	// Check specializations first because helipads and silos inherit from the
+	// ordinary vehicle/money factory categories.
+	if(Rx_Building_Helipad_GDI(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXScoreboard.T_BuildingIcon_Helipad_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_Helipad_GDI_Active';
+	if(Rx_Building_Helipad_Nod(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXScoreboard.T_BuildingIcon_Helipad_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_Helipad_Nod_Active';
+	if(Rx_Building_TeamSilo_GDI(B)!=None)
+		return Texture2D'RenXInfoScreen.T_BuildingIcon_Silo_GDI_Active';
+	if(Rx_Building_TeamSilo_Nod(B)!=None)
+		return Texture2D'RenXInfoScreen.T_BuildingIcon_Silo_Nod_Active';
+	if(Rx_Building_RepairFacility_GDI(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXScoreboard.T_BuildingIcon_Repair_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_RepPad_GDI_Active';
+	if(Rx_Building_RepairFacility_Nod(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXScoreboard.T_BuildingIcon_Repair_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_RepPad_Nod_Active';
+
+	if(Rx_Building_GDI_Defense(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXInfoScreen.T_BuildingIcon_AGT_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_AGT_Active';
+	if(Rx_Building_Nod_Defense(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXInfoScreen.T_BuildingIcon_Ob_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_Ob_Active';
+	if(Rx_Building_GDI_InfantryFactory(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXInfoScreen.T_BuildingIcon_Bar_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_Bar_Active';
+	if(Rx_Building_Nod_InfantryFactory(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXInfoScreen.T_BuildingIcon_HoN_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_HoN_Active';
+	if(Rx_Building_GDI_VehicleFactory(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXInfoScreen.T_BuildingIcon_WF_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_WF_Active';
+	if(Rx_Building_Nod_VehicleFactory(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXInfoScreen.T_BuildingIcon_Air_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_Air_Active';
+	if(Rx_Building_GDI_MoneyFactory(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXInfoScreen.T_BuildingIcon_Ref_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_Ref_GDI_Active';
+	if(Rx_Building_Nod_MoneyFactory(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXInfoScreen.T_BuildingIcon_Ref_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_Ref_Nod_Active';
+	if(Rx_Building_GDI_PowerFactory(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXInfoScreen.T_BuildingIcon_PP_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_PP_GDI_Active';
+	if(Rx_Building_Nod_PowerFactory(B)!=None)
+		return bDestroyed
+			? Texture2D'RenXInfoScreen.T_BuildingIcon_PP_Destroyed'
+			: Texture2D'RenXInfoScreen.T_BuildingIcon_PP_Nod_Active';
+
+	return None;
+}
+
+function DrawEndGameHeader(Rx_GRI GRI, float CenterX, float Y, float S)
+{
+	local float TimeLeft;
 	local string Winner, Commander[2];
 	local Color C;
 	local PlayerReplicationInfo PRI;
 
-	S=GetScale();
 	foreach GRI.PRIArray(PRI)
 		if(Rx_PRI(PRI)!=None && Rx_PRI(PRI).bIsCommander && PRI.GetTeamNum()<=TEAM_NOD)
 			Commander[PRI.GetTeamNum()]=PRI.GetHumanReadableName();
 	Winner=GRI.WinnerTeamNum==TEAM_GDI ? "GDI VICTORY" : "NOD VICTORY";
 	C=GRI.WinnerTeamNum==TEAM_GDI ? GDIColor : NodColor;
-	DrawTextAt(Winner,Canvas.SizeX*0.5,Y,C,0.72*S,1);
-	DrawTextAt(StripMarkup(GRI.WinnerReason),Canvas.SizeX*0.5,Y+21*S,ColorWhite,0.44*S,1);
+	DrawTextAt(Winner,CenterX,Y,C,0.72*S,1);
+	DrawTextAt(StripMarkup(GRI.WinnerReason),CenterX,Y+21*S,ColorWhite,0.44*S,1);
 	DrawTextAt("COMMANDERS  "$DisplayOrNone(Commander[0])$"  /  "$DisplayOrNone(Commander[1]),
-		Canvas.SizeX*0.5,Y+38*S,ColorWhite,0.4*S,1);
+		CenterX,Y+38*S,ColorWhite,0.4*S,1);
 	DrawTextAt("MVP  "$DisplayOrNone(GRI.MVP[0])$"  /  "$DisplayOrNone(GRI.MVP[1]),
-		Canvas.SizeX*0.5,Y+53*S,NeutralColor,0.42*S,1);
+		CenterX,Y+53*S,NeutralColor,0.42*S,1);
 	DrawTextAt("OFF  "$DisplayOrNone(GRI.BestOP[0])$" / "$DisplayOrNone(GRI.BestOP[1])
 		$"   DEF  "$DisplayOrNone(GRI.BestDP[0])$" / "$DisplayOrNone(GRI.BestDP[1])
 		$"   SUP  "$DisplayOrNone(GRI.BestSP[0])$" / "$DisplayOrNone(GRI.BestSP[1]),
-		Canvas.SizeX*0.5,Y+68*S,ColorWhite,0.37*S,1);
+		CenterX,Y+68*S,ColorWhite,0.37*S,1);
 	TimeLeft=FMax(0,GRI.RenEndTime-RenxHud.WorldInfo.RealTimeSeconds);
 	DrawTextAt("NEXT MAP  "$Caps(GRI.NextMap)$"   "$int(TimeLeft)$"s",
-		Canvas.SizeX*0.5,Y+83*S,ColorWhite,0.4*S,1);
+		CenterX,Y+83*S,ColorWhite,0.4*S,1);
 }
 
-function DrawEndGameMapVote(Rx_GRI GRI, float X, float Y, float W)
+function DrawEndGameMapVote(Rx_GRI GRI, float X, float Y, float W, float S)
 {
 	local int i, Rows;
-	local float S, RowY;
+	local float RowY;
 	local string VoteLine;
 
 	if(GRI.NextMap!="" || GRI.MapVotesSize<=0)
 		return;
-	S=GetScale();
 	DrawPanel(X,Y,W,91*S,PanelColor);
 	DrawTextAt("MAP VOTE",X+W*0.5,Y+6*S,NeutralColor,0.44*S,1);
 	RowY=Y+24*S;
@@ -876,23 +941,25 @@ function string DisplayOrNone(string Value)
 	return Value=="" ? "NONE" : StripMarkup(Value);
 }
 
-function DrawScoreboardBuildings(float X, float Y, float W)
+function DrawScoreboardBuildings(float X, float Y, float W, float S)
 {
 	local Rx_Building B;
 	local Rx_GRI GRI;
 	local Rx_TeamInfo GDITeam, NodTeam;
 	local int Counts[2], Destroyed[2];
-	local float S;
+	local int I;
 
-	foreach RenxHud.WorldInfo.AllActors(class'Rx_Building',B)
+	RefreshBuildingCache();
+	for(I=0;I<CachedGDIBuildings.Length+CachedNodBuildings.Length;++I)
 	{
-		if(!IsBuildingReady(B) || !B.bSignificant || B.GetTeamNum()>TEAM_NOD)
+		B=I<CachedGDIBuildings.Length ? CachedGDIBuildings[I]
+			: CachedNodBuildings[I-CachedGDIBuildings.Length];
+		if(B==None)
 			continue;
 		++Counts[B.GetTeamNum()];
 		if(B.IsDestroyed())
 			++Destroyed[B.GetTeamNum()];
 	}
-	S=GetScale();
 	GRI=Rx_GRI(RenxHud.WorldInfo.GRI);
 	if(GRI!=None)
 	{
@@ -1111,7 +1178,7 @@ function DrawHudDataCounters()
 {
 	local Rx_PRI PRI;
 	local Rx_TeamInfo TI;
-	local float S, X, Y, RowH, IconW, IconH, TextX;
+	local float S, X, Y, RowH, IconW, IconH, ArtworkW, ArtworkH, TextX;
 
 	if(MapRenderer==None || MapRenderer.MinimapSize<=0)
 		return;
@@ -1125,46 +1192,36 @@ function DrawHudDataCounters()
 	X=MapRenderer.MinimapX;
 	RowH=23*S;
 	Y=MapRenderer.MinimapY-RowH*4-4*S;
-	IconW=30*S;
-	IconH=21*S;
-	TextX=X+35*S;
+	IconW=75*S;
+	IconH=52.5*S;
+	ArtworkW=IconW*0.3;
+	ArtworkH=IconH*0.3;
+	TextX=X+82*S;
 	// Weapon and radar artwork is not square. Preserve its authored aspect
 	// ratio inside a substantially larger counter-row icon box.
-	DrawTextureAspect(ResourceMineIcon,X+1*S,Y+1*S,IconW,IconH,ColorWhite);
+	// Keep the four text baselines unchanged. The enlarged resource artwork
+	// occupies its own left column: mine above the split, vehicle below it.
+	DrawTextureRegionAspect(ResourceMineIcon,X+1*S+(IconW-ArtworkW)*0.5,
+		Y+RowH-IconH+(IconH-ArtworkH)*0.5,ArtworkW,ArtworkH,
+		0.3671875,0.2578125,0.26953125,0.484375,ColorWhite);
 	DrawTextAt(TI.MineCount$" / "$TI.MineLimit,
 		TextX,Y+3*S,ColorWhite,0.48*S,0);
-	DrawTextureAspect(ResourceVehicleIcon,X+1*S,Y+RowH+1*S,IconW,IconH,ColorWhite);
+	if(PRI.GetTeamNum()==TEAM_GDI)
+		DrawTextureRegionAspect(ResourceVehicleIcons[TEAM_GDI],
+			X+1*S+(IconW-ArtworkW)*0.5,Y+RowH+(IconH-ArtworkH)*0.5,
+			ArtworkW,ArtworkH,0.2265625,0.2109375,0.55078125,0.5703125,ColorWhite);
+	else
+		DrawTextureRegionAspect(ResourceVehicleIcons[TEAM_NOD],
+			X+1*S+(IconW-ArtworkW)*0.5,Y+RowH+(IconH-ArtworkH)*0.5,
+			ArtworkW,ArtworkH,0.2265625,0.1953125,0.55078125,0.609375,ColorWhite);
 	DrawTextAt(TI.GetVehicleCount()$" / "$TI.VehicleLimit,
 		TextX,Y+RowH+3*S,ColorWhite,0.48*S,0);
-	DrawTextAt("$",X+15*S,Y+RowH*2+3*S,ColorWhite,0.60*S,1);
+	DrawTextAt("$",TextX,Y+RowH*2+3*S,ColorWhite,0.60*S,0);
 	DrawTextAt(string(int(PRI.GetCredits())),
-		TextX,Y+RowH*2+3*S,ColorWhite,0.48*S,0);
-	DrawTextAt("CP",X+15*S,Y+RowH*3+3*S,ColorWhite,0.46*S,1);
+		TextX+18*S,Y+RowH*2+3*S,ColorWhite,0.48*S,0);
+	DrawTextAt("CP",TextX,Y+RowH*3+3*S,ColorWhite,0.46*S,0);
 	DrawTextAt(int(TI.GetCommandPoints())$" / "$int(TI.GetMaxCommandPoints()),
-		TextX,Y+RowH*3+3*S,ColorWhite,0.48*S,0);
-}
-
-function DrawCompass()
-{
-	local rotator ViewRot;
-	local int Degrees;
-	local string Heading;
-	local float S;
-
-	ViewRot = RenxHud.PlayerOwner.Rotation;
-	Degrees = int(float(ViewRot.Yaw & 65535) * 360.0 / 65536.0);
-	if(Degrees >= 315 || Degrees < 45)
-		Heading = "N";
-	else if(Degrees < 135)
-		Heading = "E";
-	else if(Degrees < 225)
-		Heading = "S";
-	else
-		Heading = "W";
-
-	S = GetScale();
-	DrawTextAt(Heading @ Degrees $ Chr(176), Canvas.SizeX*0.5+LayoutHorizontalOffset*S,
-		(51+LayoutVerticalSafeZone+LayoutVerticalOffset)*S, ColorWhite, 0.62*S, 1);
+		TextX+22*S,Y+RowH*3+3*S,ColorWhite,0.48*S,0);
 }
 
 function DrawPawnInfo()
@@ -1408,7 +1465,9 @@ function DrawVeterancy(Rx_PRI PRI, float X, float Y, float W)
 
 	Rank=PRI.GetVetRank();
 	S=GetScale();
-	if(Rank<ArrayCount(class'Rx_Game'.default.VPMilestones))
+	if(Rank>=9)
+		VPText="MAX VP";
+	else if(Rank<ArrayCount(class'Rx_Game'.default.VPMilestones))
 	{
 		NextLevel=class'Rx_Game'.default.VPMilestones[Rank];
 		VPText=int(PRI.Veterancy_Points)$" / "$NextLevel$" VP";
@@ -1418,9 +1477,9 @@ function DrawVeterancy(Rx_PRI PRI, float X, float Y, float W)
 	DrawTextAt(VetRankStateName(Rank),X,Y,NeutralColor,0.50*S,0);
 	DrawTextAt(VPText,X,Y+16*S,ColorWhite,0.38*S,0);
 	IconIndex=Clamp(Rank/3,0,3);
-	IconSize=34*S;
+	IconSize=51*S;
 	if(VetRankTextures[IconIndex]!=None)
-		DrawTextureFit(VetRankTextures[IconIndex],X,Y+28*S,
+		DrawTextureFit(VetRankTextures[IconIndex],X+W-IconSize,Y+5*S,
 			IconSize,IconSize,ColorWhite);
 }
 
@@ -1718,41 +1777,6 @@ function string DecodeTextEntities(string Text)
 	return Text;
 }
 
-function int DrawWrappedText(string Text, float X, float Y, float MaxWidth, Color C, float Scale)
-{
-	local string Remaining, Line;
-	local int MaxChars, Cut, LineCount;
-	local float S;
-
-	S=GetScale();
-	LineCount=0;
-	MaxChars=Max(16,int(MaxWidth/FMax(4,7*S)));
-	Remaining=Text;
-	while(Remaining!="" && LineCount<3)
-	{
-		if(Len(Remaining)<=MaxChars)
-		{
-			Line=Remaining;
-			Remaining="";
-		}
-		else
-		{
-			Cut=MaxChars;
-			while(Cut>8 && Mid(Remaining,Cut,1)!=" ")
-				--Cut;
-			if(Cut<=8)
-				Cut=MaxChars;
-			Line=Left(Remaining,Cut);
-			Remaining=Mid(Remaining,Cut);
-			while(Left(Remaining,1)==" ")
-				Remaining=Mid(Remaining,1);
-		}
-		DrawTextAt(Line,X,Y+LineCount*17*S,C,Scale,0);
-		++LineCount;
-	}
-	return Max(1,LineCount);
-}
-
 function DrawVote()
 {
 	local string Counts;
@@ -1927,6 +1951,27 @@ function DrawTextureAspect(Texture T, float X, float Y, float W, float H, Color 
 	DrawTextureFit(T,X+(W-DrawW)*0.5,Y+(H-DrawH)*0.5,DrawW,DrawH,C);
 }
 
+function DrawTextureRegionAspect(Texture T, float X, float Y, float W, float H,
+	float U, float V, float UL, float VL, Color C)
+{
+	local float SourceW, SourceH, RegionW, RegionH, DrawScale, DrawW, DrawH;
+
+	if(T==None || UL<=0 || VL<=0)
+		return;
+	SourceW=T.GetSurfaceWidth();
+	SourceH=T.GetSurfaceHeight();
+	if(SourceW<=0 || SourceH<=0)
+		return;
+	RegionW=SourceW*UL;
+	RegionH=SourceH*VL;
+	DrawScale=FMin(W/RegionW,H/RegionH);
+	DrawW=RegionW*DrawScale;
+	DrawH=RegionH*DrawScale;
+	Canvas.SetDrawColor(C.R,C.G,C.B,C.A);
+	Canvas.SetPos(X+(W-DrawW)*0.5,Y+(H-DrawH)*0.5);
+	Canvas.DrawTile(T,DrawW,DrawH,SourceW*U,SourceH*V,RegionW,RegionH);
+}
+
 function DrawBar(float X, float Y, float W, float H, float Value, float MaxValue, Color FillColor)
 {
 	local float Pct;
@@ -1943,7 +1988,7 @@ function DrawBar(float X, float Y, float W, float H, float Value, float MaxValue
 function DrawSegmentedStatusBar(float X, float Y, float W, float H,
 	float Value, float MaxValue, Color BaseColor, bool bHealthBar)
 {
-	local int I, FilledSegments;
+	local int I, FilledSegments, ActiveTriangle, InactiveTriangle;
 	local float Pct, Gap, SegmentW, SegmentX, FilledWidth, S;
 	local Color ActiveColor, InactiveColor, GlowColor;
 
@@ -1982,16 +2027,66 @@ function DrawSegmentedStatusBar(float X, float Y, float W, float H,
 		Canvas.SetPos(X-1.5*S,Y-1.5*S);
 		Canvas.DrawRect(FilledWidth+3*S,H+3*S);
 	}
+	if(WhiteTexture==None)
+	{
+		for(I=0;I<20;++I)
+		{
+			SegmentX=X+I*(SegmentW+Gap);
+			if(I<FilledSegments)
+				Canvas.SetDrawColor(ActiveColor.R,ActiveColor.G,ActiveColor.B,ActiveColor.A);
+			else
+				Canvas.SetDrawColor(InactiveColor.R,InactiveColor.G,InactiveColor.B,InactiveColor.A);
+			Canvas.SetPos(SegmentX,Y);
+			Canvas.DrawRect(SegmentW,H);
+		}
+		return;
+	}
+
+	ActiveSegmentTriangles.Length=FilledSegments*2;
+	InactiveSegmentTriangles.Length=(20-FilledSegments)*2;
+	ActiveTriangle=0;
+	InactiveTriangle=0;
 	for(I=0;I<20;++I)
 	{
 		SegmentX=X+I*(SegmentW+Gap);
 		if(I<FilledSegments)
-			Canvas.SetDrawColor(ActiveColor.R,ActiveColor.G,ActiveColor.B,ActiveColor.A);
+		{
+			SetRectTriangles(ActiveSegmentTriangles,ActiveTriangle,SegmentX,Y,SegmentW,H);
+			ActiveTriangle+=2;
+		}
 		else
-			Canvas.SetDrawColor(InactiveColor.R,InactiveColor.G,InactiveColor.B,InactiveColor.A);
-		Canvas.SetPos(SegmentX,Y);
-		Canvas.DrawRect(SegmentW,H);
+		{
+			SetRectTriangles(InactiveSegmentTriangles,InactiveTriangle,SegmentX,Y,SegmentW,H);
+			InactiveTriangle+=2;
+		}
 	}
+	if(ActiveSegmentTriangles.Length>0)
+	{
+		Canvas.SetDrawColor(ActiveColor.R,ActiveColor.G,ActiveColor.B,ActiveColor.A);
+		Canvas.DrawTris(WhiteTexture,ActiveSegmentTriangles,ActiveColor);
+	}
+	if(InactiveSegmentTriangles.Length>0)
+	{
+		Canvas.SetDrawColor(InactiveColor.R,InactiveColor.G,InactiveColor.B,InactiveColor.A);
+		Canvas.DrawTris(WhiteTexture,InactiveSegmentTriangles,InactiveColor);
+	}
+}
+
+function SetRectTriangles(out array<CanvasUVTri> Triangles, int TriangleIndex,
+	float X, float Y, float W, float H)
+{
+	Triangles[TriangleIndex].V0_Pos.X=X;
+	Triangles[TriangleIndex].V0_Pos.Y=Y;
+	Triangles[TriangleIndex].V1_Pos.X=X+W;
+	Triangles[TriangleIndex].V1_Pos.Y=Y;
+	Triangles[TriangleIndex].V2_Pos.X=X+W;
+	Triangles[TriangleIndex].V2_Pos.Y=Y+H;
+	Triangles[TriangleIndex+1].V0_Pos.X=X;
+	Triangles[TriangleIndex+1].V0_Pos.Y=Y;
+	Triangles[TriangleIndex+1].V1_Pos.X=X+W;
+	Triangles[TriangleIndex+1].V1_Pos.Y=Y+H;
+	Triangles[TriangleIndex+1].V2_Pos.X=X;
+	Triangles[TriangleIndex+1].V2_Pos.Y=Y+H;
 }
 
 function DrawTextAt(string Text, float X, float Y, Color TextColor, float Scale, byte Alignment)
@@ -2000,11 +2095,14 @@ function DrawTextAt(string Text, float X, float Y, Color TextColor, float Scale,
 
 	if(Text == "")
 		return;
-	Canvas.TextSize(Text, XL, YL, Scale, Scale);
-	if(Alignment == 1)
-		X -= XL*0.5;
-	else if(Alignment == 2)
-		X -= XL;
+	if(Alignment!=0)
+	{
+		Canvas.TextSize(Text, XL, YL, Scale, Scale);
+		if(Alignment == 1)
+			X -= XL*0.5;
+		else if(Alignment == 2)
+			X -= XL;
+	}
 	Canvas.SetDrawColor(TextColor.R,TextColor.G,TextColor.B,TextColor.A);
 	Canvas.SetPos(X,Y);
 	Canvas.DrawText(Text,false,Scale,Scale,HUDTextRenderInfo);
@@ -2051,18 +2149,19 @@ DefaultProperties
 	LayoutMessageScale=1.0
 	LayoutScoreboardScale=1.0
 	LayoutOverviewScale=1.0
+	WhiteTexture=Texture2D'EngineResources.WhiteSquareTexture'
 	HUDFont=Font'RenxHud.Font.AgentConDB'
 	PanelColor=(R=4,G=9,B=13,A=196)
 	PanelBorderColor=(R=28,G=39,B=45,A=185)
 	HealthColor=(R=76,G=190,B=55,A=255)
 	ArmorColor=(R=40,G=170,B=230,A=255)
-	StaminaColor=(R=242,G=202,B=42,A=255)
 	AmmoColor=(R=245,G=245,B=230,A=255)
 	GDIColor=(R=255,G=198,B=0,A=255)
 	NodColor=(R=235,G=45,B=35,A=255)
 	NeutralColor=(R=80,G=235,B=190,A=255)
-	ResourceMineIcon=Texture2D'RX_WP_ATMine.UI.T_WeaponIcon_ATMine'
-	ResourceVehicleIcon=Texture2D'RenxHud.T_Radar_Blip_Vehicle_Neutral'
+	ResourceMineIcon=Texture2D'RX_HUD_Canvas.pt_menu.T_Icon_Weapon_ATMine'
+	ResourceVehicleIcons(0)=Texture2D'RX_HUD_Canvas.pt_menu.T_Icon_Vehicles_GDI'
+	ResourceVehicleIcons(1)=Texture2D'RX_HUD_Canvas.pt_menu.T_Icon_Vehicles_Nod'
 	VetRankTextures(0)=Texture2D'RenXTargetSystem.T_TargetSystem_Neutral_Recruit'
 	VetRankTextures(1)=Texture2D'RenXTargetSystem.T_TargetSystem_Neutral_Veteran'
 	VetRankTextures(2)=Texture2D'RenXTargetSystem.T_TargetSystem_Neutral_Elite'

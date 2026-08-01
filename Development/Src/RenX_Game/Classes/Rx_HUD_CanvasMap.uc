@@ -13,9 +13,6 @@ var Texture2D VehicleEnemyIcon;
 var Texture2D VehicleNeutralIcon;
 var Texture2D PlayerInfantryIcon;
 var Texture2D PlayerVehicleIcon;
-var Texture2D BuildingGDIIcon;
-var Texture2D BuildingNodIcon;
-var Texture2D TechIcon;
 
 var float MinimapWorldRange;
 var float MinimapX;
@@ -33,6 +30,11 @@ var array<Actor> CachedRadarActors;
 var WorldInfo CachedRadarWorld;
 var float NextRadarListRefreshTime;
 var bool bRadarListReady;
+var array<Rx_Building> CachedMapBuildings;
+var WorldInfo CachedBuildingWorld;
+var float NextBuildingCacheTime;
+var bool bBuildingListReady;
+var WorldInfo CachedMapInfoWorld;
 var float LayoutGlobalScale;
 var float LayoutHorizontalOffset;
 var float LayoutVerticalOffset;
@@ -71,8 +73,13 @@ function Update(float DeltaTime, Rx_HUD HUD)
 		MapFontRenderInfo.GlowInfo.GlowInnerRadius.Y=0.52;
 		bMapFontRenderInfoReady=true;
 	}
-	if(MapInfo == None && HUD.WorldInfo != None)
+	if(HUD.WorldInfo!=None && CachedMapInfoWorld!=HUD.WorldInfo)
+	{
+		CachedMapInfoWorld=HUD.WorldInfo;
 		MapInfo = Rx_MapInfo(HUD.WorldInfo.GetMapInfo());
+		bRadarListReady=false;
+		bBuildingListReady=false;
+	}
 	if(MapInfo != None && MapInfo.MapMaterialInstance == None)
 		MapInfo.FindObjectives();
 }
@@ -85,9 +92,9 @@ function DrawMinimap(Pawn CenterPawn)
 	if(!CanDrawMap(CenterPawn))
 		return;
 
-	S = GetResolutionScale()*LayoutGlobalScale;
-	MinimapSize = FClamp(Canvas.SizeY*0.245*LayoutMinimapScale,
-		150*S*LayoutMinimapScale, 244*S*LayoutMinimapScale);
+	S = GetMapUIScale(false);
+	MinimapSize = FClamp(Canvas.SizeY*0.245*LayoutGlobalScale*LayoutMinimapScale,
+		150*S, 244*S);
 	MinimapX = (14+LayoutHorizontalSafeZone+LayoutHorizontalOffset)*S;
 	MinimapY = Canvas.SizeY-MinimapSize-(12+LayoutVerticalSafeZone-LayoutVerticalOffset)*S;
 	MinimapWorldRange = GetMinimapRange();
@@ -276,7 +283,6 @@ function DrawRadarActor(Actor A, Pawn CenterPawn, bool bOverview)
 
 	IconTexture=Marker.GetMinimapIconTexture();
 	IconSize=GetMarkerSize(A,bOverview);
-	IconColor=GetActorColor(A,CenterPawn);
 	// These colors deliberately sit near full luminance on both tactical maps.
 	// The authored blip textures are mostly translucent, so the old mid-value
 	// tints made even valid markers disappear into bright terrain.
@@ -418,7 +424,7 @@ function bool GetMinimapMarkerPosition(vector WorldLocation, Pawn CenterPawn,
 	ResolutionFactor=MinimapSize/(2.0*float(MapInfo.MinimapRadius));
 	LocalX=(Delta.X*Cos(F)-Delta.Y*Sin(F))*PixelsPerUU*ResolutionFactor;
 	LocalY=(Delta.X*Sin(F)+Delta.Y*Cos(F))*PixelsPerUU*ResolutionFactor;
-	HalfSize=MinimapSize*0.5-3*GetResolutionScale();
+	HalfSize=MinimapSize*0.5-3*GetMapUIScale(false);
 	if(Abs(LocalX)>HalfSize || Abs(LocalY)>HalfSize)
 		return false;
 	MapPos.X=MapInfo.CenterPos.X+LocalX;
@@ -467,7 +473,7 @@ function DrawPlayerMarker(Pawn CenterPawn, bool bOverview)
 
 	P = bOverview ? MapInfo.UpdateHUDLocation(CenterPawn.Location) : MapInfo.CenterPos;
 	Icon = Rx_Vehicle(CenterPawn) != None ? PlayerVehicleIcon : PlayerInfantryIcon;
-	Size = bOverview ? 18*GetResolutionScale() : 13*GetResolutionScale();
+	Size = (bOverview ? 18 : 13)*GetMapUIScale(bOverview);
 	IconColor.R=175; IconColor.G=255; IconColor.B=235; IconColor.A=255;
 	if(Icon != None)
 	{
@@ -496,13 +502,15 @@ function DrawPlayerMarker(Pawn CenterPawn, bool bOverview)
 function DrawBuildings(bool bOverview, Pawn CenterPawn)
 {
 	local Rx_Building B;
+	local int I;
 	local vector P;
 	local Color C;
 	local float Size, HealthPct, ArmorPct;
 
-	Size = (bOverview ? 11 : 8)*GetResolutionScale();
-	foreach RenxHud.WorldInfo.AllActors(class'Rx_Building',B)
+	RefreshBuildingCache();
+	for(I=0;I<CachedMapBuildings.Length;++I)
 	{
+		B=CachedMapBuildings[I];
 		if(!IsBuildingReady(B))
 			continue;
 		// The Airstrip's separate tower actor shares its health with the
@@ -515,9 +523,9 @@ function DrawBuildings(bool bOverview, Pawn CenterPawn)
 		if(!bOverview && VSize2D(B.Location-CenterPawn.Location)>MinimapWorldRange*0.55)
 			continue;
 		if(!B.bSignificant)
-			Size=(bOverview ? 8 : 6)*GetResolutionScale();
+			Size=(bOverview ? 8 : 6)*GetMapUIScale(bOverview);
 		else
-			Size=(bOverview ? 11 : 8)*GetResolutionScale();
+			Size=(bOverview ? 11 : 8)*GetMapUIScale(bOverview);
 		P = MapInfo.UpdateHUDLocation(B.Location);
 		if(B.GetTeamNum()==TEAM_GDI)
 			C=GDIColor();
@@ -564,6 +572,21 @@ function DrawBuildings(bool bOverview, Pawn CenterPawn)
 	}
 }
 
+function RefreshBuildingCache()
+{
+	local Rx_Building B;
+
+	if(bBuildingListReady && CachedBuildingWorld==RenxHud.WorldInfo
+		&& RenxHud.WorldInfo.TimeSeconds<NextBuildingCacheTime)
+		return;
+	CachedMapBuildings.Length=0;
+	CachedBuildingWorld=RenxHud.WorldInfo;
+	foreach RenxHud.WorldInfo.AllActors(class'Rx_Building',B)
+		CachedMapBuildings.AddItem(B);
+	NextBuildingCacheTime=RenxHud.WorldInfo.TimeSeconds+1.0;
+	bBuildingListReady=true;
+}
+
 function DrawPlayerDirectionArrow(Pawn CenterPawn, vector PlayerPos, float MarkerSize)
 {
 	local vector Ahead, Direction, Perpendicular, Tip, Base, LeftPoint, RightPoint;
@@ -592,12 +615,12 @@ function DrawOverviewCompass()
 {
 	local float S, Pad;
 
-	S=GetResolutionScale();
+	S=GetMapUIScale(true);
 	Pad=4*S;
-	DrawSmallText("N",OverviewX+OverviewSize*0.5,OverviewY+Pad,1);
-	DrawSmallText("S",OverviewX+OverviewSize*0.5,OverviewY+OverviewSize-12*S,1);
-	DrawSmallText("W",OverviewX+Pad,OverviewY+OverviewSize*0.5-4*S,0);
-	DrawSmallText("E",OverviewX+OverviewSize-Pad,OverviewY+OverviewSize*0.5-4*S,2);
+	DrawSmallText("N",OverviewX+OverviewSize*0.5,OverviewY+Pad,1,true);
+	DrawSmallText("S",OverviewX+OverviewSize*0.5,OverviewY+OverviewSize-12*S,1,true);
+	DrawSmallText("W",OverviewX+Pad,OverviewY+OverviewSize*0.5-4*S,0,true);
+	DrawSmallText("E",OverviewX+OverviewSize-Pad,OverviewY+OverviewSize*0.5-4*S,2,true);
 }
 
 function bool IsBuildingReady(Rx_Building B)
@@ -615,7 +638,7 @@ function DrawCompassTicks()
 	local int Degrees;
 	local string Heading;
 
-	S = GetResolutionScale();
+	S = GetMapUIScale(false);
 	X = MinimapX+MinimapSize*0.5;
 	Y = MinimapY+5*S;
 	Degrees = int(float(RenxHud.PlayerOwner.Rotation.Yaw & 65535)*360.0/65536.0);
@@ -695,16 +718,20 @@ function DrawLine(float X1, float Y1, float X2, float Y2, float Thickness)
 	}
 }
 
-function DrawSmallText(string Text, float X, float Y, byte Alignment)
+function DrawSmallText(string Text, float X, float Y, byte Alignment,
+	optional bool bOverview=false)
 {
 	local float XL,YL,S;
 
-	S = 0.48*GetResolutionScale();
-	Canvas.TextSize(Text,XL,YL,S,S);
-	if(Alignment == 1)
-		X -= XL*0.5;
-	else if(Alignment == 2)
-		X -= XL;
+	S = 0.48*GetMapUIScale(bOverview);
+	if(Alignment!=0)
+	{
+		Canvas.TextSize(Text,XL,YL,S,S);
+		if(Alignment == 1)
+			X -= XL*0.5;
+		else if(Alignment == 2)
+			X -= XL;
+	}
 	Canvas.SetDrawColor(235,245,255,255);
 	Canvas.SetPos(X,Y);
 	Canvas.DrawText(Text,false,S,S,MapFontRenderInfo);
@@ -716,20 +743,11 @@ function bool IsEnemy(Actor A, Pawn CenterPawn)
 		&& A.GetTeamNum() != CenterPawn.GetTeamNum();
 }
 
-function Color GetActorColor(Actor A, Pawn CenterPawn)
-{
-	if(A.GetTeamNum()==TEAM_GDI)
-		return GDIColor();
-	if(A.GetTeamNum()==TEAM_NOD)
-		return NodColor();
-	return NeutralColor();
-}
-
 function float GetMarkerSize(Actor A, bool bOverview)
 {
 	local float S;
 
-	S = GetResolutionScale();
+	S = GetMapUIScale(bOverview);
 	if(Rx_Vehicle(A) != None)
 		return (bOverview ? 14 : 12)*S;
 	if(Rx_Weapon_DeployedBeacon(A) != None)
@@ -757,6 +775,12 @@ function Texture GetFallbackIcon(Actor A, Pawn CenterPawn)
 function float GetResolutionScale()
 {
 	return FClamp(Canvas.SizeY/720.0,0.67,1.5);
+}
+
+function float GetMapUIScale(bool bOverview)
+{
+	return GetResolutionScale()*LayoutGlobalScale
+		*(bOverview ? LayoutOverviewScale : LayoutMinimapScale);
 }
 
 function Color GDIColor()
