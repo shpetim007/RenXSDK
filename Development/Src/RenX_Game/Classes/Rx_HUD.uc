@@ -51,6 +51,7 @@ var Rx_HUD_AutoBalance autoBalancer;
 var Rx_HUD_DominationBar_Comp DominationBar; 
 var Rx_HUD_Cursor RxCursor;
 var Rx_HUD_CanvasMain CanvasMain;
+var bool bUsingCanvasHUD;
 
 var bool DrawCText, DrawTargetBox,DrawPlayerNames,DrawCaptureProgress, DrawFlashHUD; //DrawC_Visuals; 
 
@@ -405,17 +406,30 @@ function Message( PlayerReplicationInfo PRI, coerce string Msg, name MsgType, op
 
 	if (MsgType == 'Special') 
 	{
-		fMsg = CleanHTMLMessage(cName$": "$Msg);
+		if(CanvasMain != None)
+		{
+			fMsg = CleanHTMLMessage(cName$": "$Msg);
+			MessageType = 6;
+		}
+		else
+		{
+			fMsg = "<font color='"$HostColor$"'>"$cName$"</font>: <font color='#FFFFFF'>"$Msg$"</font>";
+			MessageType = 0;
+		}
 		PublicChatMessageLog $= fMsg $ "\n";
 		rMsg = cName $": "$ Msg;
-		MessageType = 6;
 	}
 	else if (MsgType == 'Say') 
 	{
 		if (PRI == None)
 		{
-			fMsg = CleanHTMLMessage(cName$": "$Msg);
-			MessageType = 6;
+			if(CanvasMain != None)
+			{
+				fMsg = CleanHTMLMessage(cName$": "$Msg);
+				MessageType = 6;
+			}
+			else
+				fMsg = "<font color='"$HostColor$"'>"$cName$"</font>: <font color='#FFFFFF'>"$CleanHTMLMessage(Msg)$"</font>";
 		}
 		else if (PRI.Team == None || PRI.Team.GetTeamNum() > 1 )
 			fMsg = "<font color='" $HostColor$"'>" $cName$"</font>: <font color='#FFFFFF'>"$CleanHTMLMessage(Msg)$"</font>";
@@ -489,7 +503,7 @@ function Message( PlayerReplicationInfo PRI, coerce string Msg, name MsgType, op
 		fMsg = CleanHTMLMessage(Msg);
 		PublicChatMessageLog $= fMsg $ "\n";
 		rMsg = Msg;
-		MessageType = 6;
+		MessageType = CanvasMain != None ? 6 : 0;
 	}
 	else if (MsgType == 'PM') {
 		if (PRI != None)
@@ -508,8 +522,16 @@ function Message( PlayerReplicationInfo PRI, coerce string Msg, name MsgType, op
 	}
 	else if (MsgType == 'CTEXT')
 	{
-		fMsg = CleanHTMLMessage(Msg);
-		MessageType = 6;
+		if(CanvasMain != None)
+		{
+			fMsg = CleanHTMLMessage(Msg);
+			MessageType = 6;
+		}
+		else
+		{
+			fMsg = Msg;
+			MessageType = 4;
+		}
 	}
 	else if (MsgType == 'AdminMsg' || MsgType == 'PM_AdminMsg') {
 		MessageType = 5;
@@ -523,8 +545,13 @@ function Message( PlayerReplicationInfo PRI, coerce string Msg, name MsgType, op
 	else if (MsgType == 'Event') {
 		// PlayerController.ClientMessage uses Event by default. Donations and
 		// similar game/host notices belong above EVA and chat.
-		fMsg = CleanHTMLMessage(Msg);
-		MessageType = 6;
+		if(CanvasMain != None)
+		{
+			fMsg = CleanHTMLMessage(Msg);
+			MessageType = 6;
+		}
+		else
+			MessageType = 2;
 	}
 	else
 		MessageType = 2;
@@ -808,8 +835,15 @@ function CreateUIInterface()
 	if(IsMainMenu())
 		return;
 
-	// The always-on gameplay interface is Canvas-native.  GFx remains available
-	// to independent front-end/pause screens, but no HUD movie is started here.
+	bUsingCanvasHUD = class'Rx_HUD_Config'.default.bUseCanvasHUD;
+	`log("Rx_HUD: using" @ (bUsingCanvasHUD ? "Canvas" : "Scaleform/GFx") @ "gameplay HUD");
+
+	if(!bUsingCanvasHUD)
+	{
+		CreateGIHUDMovie();
+		CreateHUDMovie();
+	}
+
 	CreateHudCompoenents();
 }
 
@@ -857,10 +891,13 @@ function CreateHudCompoenents()
 	MarqueeManager = new MarqueeClass; 
 	DominationBar = new DominationBarClass; 
 	RxCursor = new RxCursorClass;
-	CanvasMain = new CanvasMainClass;
-	// DisplayRadioCommands runs before the normal component update on the first
-	// rendered frame, so initialize the component's HUD reference immediately.
-	CanvasMain.Update(0.0, self);
+	if(bUsingCanvasHUD)
+	{
+		CanvasMain = new CanvasMainClass;
+		// DisplayRadioCommands runs before the normal component update on the first
+		// rendered frame, so initialize the component's HUD reference immediately.
+		CanvasMain.Update(0.0, self);
+	}
 }
 
 function UpdateHudCompoenents(float DeltaTime, Rx_HUD HUD)
@@ -1137,12 +1174,16 @@ event PostRender()
 		{
 			if(CanvasMain != None)
 				CanvasMain.SetGameplayTip("");
+			else if(HudMovie != None)
+				HudMovie.GameplayTipsText.SetVisible(false);
 			DrawSpecmodeInfos();
 		}
 		else
 		{
 			if(CanvasMain != None)
 				CanvasMain.SetGameplayTip("Press Fire to Spawn!");
+			else if(HudMovie != None)
+				HudMovie.GameplayTipsText.SetText("Press Fire to Spawn!");
 		}
 	}
 
@@ -1971,7 +2012,7 @@ function DisplayRadioCommands()
 
 	pc = Rx_Controller(PlayerOwner);
 
-	if (CanvasMain == None)
+	if (CanvasMain == None && (HudMovie == None || !HudMovie.bMovieIsOpen))
 		return;
 
 	if(UTGRI != None && UTGRI.bMatchIsOver) 
@@ -1997,7 +2038,10 @@ function DisplayRadioCommands()
 		if(GRI.VoteChoiceClass[i] != None)
 			GRI.VoteChoiceClass[i].static.ModifyVote(pc, content, yes, no, yesNeeded, timeLeft);
 
-		CanvasMain.SetVote(content, yes, no, yesNeeded, timeLeft);
+		if(CanvasMain != None)
+			CanvasMain.SetVote(content, yes, no, yesNeeded, timeLeft);
+		else
+			HudMovie.showVote(content, yes, no, yesNeeded, timeLeft);
 
 		if (pc.VoteHandler != none)
 		{
@@ -2014,19 +2058,22 @@ function DisplayRadioCommands()
 		}
 
 		if (!Rx_PlayerInput(PlayerOwner.PlayerInput).bRadio1Pressed && !Rx_PlayerInput(PlayerOwner.PlayerInput).bRadio0Pressed){
-			CanvasMain.SetSideMenuVisible(false);
+			if(CanvasMain != None)
+				CanvasMain.SetSideMenuVisible(false);
+			else
+				HudMovie.SideMenuVis(false);
 			return;
 		}
 		else if(Rx_PlayerInput(PlayerOwner.PlayerInput).bRadio1Pressed && Rx_PlayerInput(PlayerOwner.PlayerInput).bRadio0Pressed){
-			if(CanvasMain != none)
+			if(CanvasMain != none || (HudMovie != none && HudMovie.bMovieIsOpen))
 				CreateMenuArray("CTRLALT");
 
 		} else if (Rx_PlayerInput(PlayerOwner.PlayerInput).bRadio0Pressed) {
-			if(CanvasMain != none)
+			if(CanvasMain != none || (HudMovie != none && HudMovie.bMovieIsOpen))
 				CreateMenuArray("CTRL");
 
 		} else if (Rx_PlayerInput(PlayerOwner.PlayerInput).bRadio1Pressed) {
-			if(CanvasMain != none)
+			if(CanvasMain != none || (HudMovie != none && HudMovie.bMovieIsOpen))
 				CreateMenuArray("ALT");
 		}
 	}
@@ -2114,6 +2161,11 @@ function CreateMenuArray(string type)
 		CanvasMain.SetMenuOptions(MenuOptions);
 		CanvasMain.bShowHelp = false;
 	}
+	else
+	{
+		HudMovie.DisplayOptions(MenuOptions);
+		HudMovie.HelpMenuVis(false);
+	}
 }
 
 function CreateVoteMenuArray(array<string> VoteOptions)
@@ -2178,6 +2230,11 @@ function CreateVoteMenuArray(array<string> VoteOptions)
 		CanvasMain.SetMenuOptions(MenuOptions);
 		CanvasMain.bShowHelp = false;
 	}
+	else
+	{
+		HudMovie.DisplayOptions(MenuOptions);
+		HudMovie.HelpMenuVis(false);
+	}
 }
 
 function CreateCommanderMenuArray(array<string> ComOptions, int ComPoints, int MaxComPoints)
@@ -2214,6 +2271,8 @@ function CreateCommanderMenuArray(array<string> ComOptions, int ComPoints, int M
 
 	if(CanvasMain != None)
 		CanvasMain.bShowHelp = false;
+	else
+		HudMovie.HelpMenuVis(false);
 
 	For(i = 0; i < ComOptions.Length; i++) {
 		Split = SplitString(ComOptions[i], "|");
@@ -2227,6 +2286,8 @@ function CreateCommanderMenuArray(array<string> ComOptions, int ComPoints, int M
 			Option.myCT = greenCT;				// Set color to green
 			if(CanvasMain != None)
 				CanvasMain.bShowHelp = true;
+			else
+				HudMovie.HelpMenuVis(true);
 		}
 
 		Option.Position = i + 1;
@@ -2237,8 +2298,12 @@ function CreateCommanderMenuArray(array<string> ComOptions, int ComPoints, int M
 	}
 
 	if(ComOptions[0] == "1|Meet Here" || ComOptions[1] == "2|DEFEND") // Disable help menu if we're on the waypoints page.
+	{
 		if(CanvasMain != None)
 			CanvasMain.bShowHelp = false;
+		else
+			HudMovie.HelpMenuVis(false);
+	}
 
 	Option.myCT = defaultCT;
 	Option.Position = 0;
@@ -2258,6 +2323,8 @@ function CreateCommanderMenuArray(array<string> ComOptions, int ComPoints, int M
 
 	if(CanvasMain != None)
 		CanvasMain.SetMenuOptions(MenuOptions);
+	else
+		HudMovie.DisplayOptions(MenuOptions);
 }
 
 function CreateHelpMenuArray(string HelpText) {
@@ -2267,6 +2334,8 @@ function CreateHelpMenuArray(string HelpText) {
 
 	if(CanvasMain != None)
 		CanvasMain.SetHelpLines(Split);
+	else
+		HudMovie.DisplayHelpMenu(Split);
 }
 
 function CreateDonateMenuArray(array<string> DonateOptions)
@@ -2311,6 +2380,11 @@ function CreateDonateMenuArray(array<string> DonateOptions)
 	{
 		CanvasMain.SetMenuOptions(MenuOptions);
 		CanvasMain.bShowHelp = false;
+	}
+	else
+	{
+		HudMovie.DisplayOptions(MenuOptions);
+		HudMovie.HelpMenuVis(false);
 	}
 }
 
@@ -2388,6 +2462,11 @@ function DrawTaunts()
 	{
 		CanvasMain.SetMenuOptions(MenuOptions);
 		CanvasMain.bShowHelp = false;
+	}
+	else
+	{
+		HudMovie.DisplayOptions(MenuOptions);
+		HudMovie.HelpMenuVis(false);
 	}
 }
 
@@ -2521,6 +2600,8 @@ function DisplayHit(vector HitDir, int Damage, class<DamageType> damageType)
 	
 	if(CanvasMain != None)
 		CanvasMain.ShowHitMarker();
+	else if(HudMovie != None)
+		HudMovie.DisplayHit(HitDir, Damage, damageType);
 	
 	if(class<Rx_DmgType>(damageType) != none)
 		LC = class<Rx_DmgType>(damageType).static.GetHitColour();
@@ -2588,14 +2669,48 @@ function OpenOverviewMap()
 {
 	bToggleOverviewMap = true;
 	if(CanvasMain != None)
+	{
 		CanvasMain.bShowOverview = true;
+		return;
+	}
+
+	if(IsTimerActive(nameof(CleanUpOverviewMapMovie)))
+		ClearTimer(nameof(CleanUpOverviewMapMovie));
+
+	if(OverviewMapMovie == None)
+	{
+		OverviewMapMovie = new OverviewMapClass;
+		OverviewMapMovie.LocalPlayerOwnerIndex = GetLocalPlayerOwnerIndex();
+		if(Canvas != none)
+			OverviewMapMovie.SetViewport(0, 0, Canvas.ClipX, Canvas.ClipY);
+		OverviewMapMovie.SetViewScaleMode(SM_ExactFit);
+		OverviewMapMovie.SetTimingMode(TM_Real);
+		HudMovie.OverviewMapMovie = OverviewMapMovie;
+	}
+
+	if(!OverviewMapMovie.bMovieIsOpen)
+		OverviewMapMovie.Start();
+
+	SetVisible(false);
 }
 
 function CloseOverviewMap()
 {
 	bToggleOverviewMap = false;
 	if(CanvasMain != None)
+	{
 		CanvasMain.bShowOverview = false;
+		return;
+	}
+
+	if(OverviewMapMovie != none && OverviewMapMovie.bMovieIsOpen)
+	{
+		OverviewMapMovie.Close(false);
+		SetTimer(5.0, false, nameof(CleanUpOverviewMapMovie));
+	}
+
+	if(RxPauseMenuMovie == none || !RxPauseMenuMovie.bMovieIsOpen)
+		SetVisible(true);
 }
 
 function CleanUpOverviewMapMovie()
@@ -2617,12 +2732,46 @@ exec function SetShowScores(bool bEnableShowScores)
 function HandleSetShowScores(bool bEnableShowScores, bool bForceHandle)
 {
 	if(CanvasMain != None)
+	{
 		CanvasMain.bShowFullScoreboard = bEnableShowScores;
+		return;
+	}
+
+	if(bEnableShowScores)
+	{
+		if(Scoreboard == None)
+		{
+			Scoreboard = new ScoreboardClass;
+			Scoreboard.LocalPlayerOwnerIndex = GetLocalPlayerOwnerIndex();
+			Scoreboard.SetViewport(0, 0, Canvas.ClipX, Canvas.ClipY);
+			Scoreboard.SetViewScaleMode(SM_ExactFit);
+			Scoreboard.SetTimingMode(TM_Real);
+			Scoreboard.ExternalInterface = self;
+		}
+
+		if(!Scoreboard.bMovieIsOpen)
+		{
+			Scoreboard.Start();
+			Scoreboard.Draw();
+		}
+
+		SetVisible(false);
+	}
+	else if(Scoreboard != None && Scoreboard.bMovieIsOpen && (!Rx_GRI(PlayerOwner.WorldInfo.GRI).bMatchIsOver || bForceHandle))
+	{
+		if(Rx_GRI(PlayerOwner.WorldInfo.GRI).bMatchIsOver)
+			LastEndScoreboardChats = Scoreboard.Chatlog;
+
+		Scoreboard.Close(false);
+
+		if(!Rx_GRI(PlayerOwner.WorldInfo.GRI).bMatchIsOver && (RxPauseMenuMovie == none || !RxPauseMenuMovie.bMovieIsOpen))
+			SetVisible(true);
+	}
 }
 
 function bool DisplayKillMsgs()
 {
-	return CanvasMain != none;
+	return CanvasMain != none || (HudMovie != none && HudMovie.bMovieIsOpen);
 }
 
 function LocalizedMessage
@@ -2672,6 +2821,8 @@ function LocalizedMessage
 	{
 		if(CanvasMain != None)
 			CanvasMain.AddMessage(CriticalString, LifeTime, 2);
+		else
+			HudMovie.AddEVAMessage(CriticalString);
 	}
 	else if (InMessageClass == class'Rx_Message_Buildings')
 	{
@@ -2702,10 +2853,12 @@ function LocalizedMessage
 	{
 		if(RelatedPRI_1 != PlayerOwner.PlayerReplicationInfo)
 		{ 	
-			if(RelatedPRI_1.GetTeamNum() != PlayerOwner.GetTeamNum())
+			if(CanvasMain != None)
 				CanvasMain.AddMessage(CriticalString, LifeTime, 2);
+			else if(RelatedPRI_1.GetTeamNum() != PlayerOwner.GetTeamNum())
+				HudMovie.AddEVAMessage("<font color='#ff0000'>"$CriticalString$"</font>");
 			else
-				CanvasMain.AddMessage(CriticalString, LifeTime, 2);
+				HudMovie.AddEVAMessage("<font color='#00ff00'>"$CriticalString$"</font>");
 		}
 	} 
 	else if (InMessageClass == class'Rx_Message_Deployed')
@@ -2766,6 +2919,8 @@ function AddKillMessage(PlayerReplicationInfo Killer, PlayerReplicationInfo Kill
 
 	if(CanvasMain != None)
 		CanvasMain.AddMessage(htmlMsg, 8.0, 4);
+	else
+		HudMovie.AddGameEventMessage(htmlMsg);
 }
 
 function string GetSimpleKillMessage(PlayerReplicationInfo Killer, PlayerReplicationInfo Killed, optional class<Rx_DmgType> DmgType)
@@ -2808,36 +2963,55 @@ function string GetSimpleKillMessage(PlayerReplicationInfo Killer, PlayerReplica
 
 function AddBuildingKillMessage(PlayerReplicationInfo Killer, Rx_Building_Team_Internals Building, optional class<Rx_DmgType> DmgType)
 {
-	if(KillFeedMode == 1 && DmgType != None && DmgType.default.WeaponName != "")
-		CanvasMain.AddMessage("* "$ GetColouredName(Killer) $" destroyed the "$ Building.GetBuildingName() $" ("$DmgType.default.WeaponName$")*", 10.0, 4);
-
+	if(CanvasMain != None)
+	{
+		if(KillFeedMode == 1 && DmgType != None && DmgType.default.WeaponName != "")
+			CanvasMain.AddMessage("* "$ GetColouredName(Killer) $" destroyed the "$ Building.GetBuildingName() $" ("$DmgType.default.WeaponName$")*", 10.0, 4);
+		else
+			CanvasMain.AddMessage("* "$ GetColouredName(Killer) $" destroyed the "$ Building.GetBuildingName() $" *", 10.0, 4);
+	}
+	else if(KillFeedMode == 1 && DmgType != None && DmgType.default.WeaponName != "")
+		HudMovie.AddGameEventMessage("* "$ GetColouredName(Killer) $" destroyed the <font color='"$ GetTeamColour(Building.TeamID) $"'>"$ Building.GetBuildingName() $"</font> ("$DmgType.default.WeaponName$")*");
 	else
-		CanvasMain.AddMessage("* "$ GetColouredName(Killer) $" destroyed the "$ Building.GetBuildingName() $" *", 10.0, 4);
+		HudMovie.AddGameEventMessage("* "$ GetColouredName(Killer) $" destroyed the <font color='"$ GetTeamColour(Building.TeamID) $"'>"$ Building.GetBuildingName() $"</font> *");
 }
 
 function AddBuildingReviveMessage(PlayerReplicationInfo Reviver, Rx_Building_Team_Internals Building)
 {
 	if(CanvasMain != None)
 		CanvasMain.AddMessage("* "$ GetColouredName(Reviver) $" restored the "$ Building.GetBuildingName() $" *", 10.0, 4);
+	else
+		HudMovie.AddGameEventMessage("* "$ GetColouredName(Reviver) $" restored the <font color='"$ GetTeamColour(Building.TeamID) $"'>"$ Building.GetBuildingName() $"</font> *");
 }
 
 function AddTechBuildingCaptureMessage(PlayerReplicationInfo Capturer, Rx_Building_Team_Internals Building, byte CapturingTeam)
 {
-	if (Capturer != None)
+	if(CanvasMain != None && Capturer != None)
 		CanvasMain.AddMessage(GetColouredName(Capturer) $" captured the "$ Building.GetBuildingName(), 10.0, 4);
-	else
+	else if(CanvasMain != None)
 		CanvasMain.AddMessage(class'Rx_Game'.static.GetTeamName(CapturingTeam) $" captured the "$ Building.GetBuildingName(), 10.0, 4);
+	else if(Capturer != None)
+		HudMovie.AddGameEventMessage(GetColouredName(Capturer) $" captured the <font color='"$ GetTeamColour(Building.TeamID) $"'>"$ Building.GetBuildingName() $"</font>");
+	else
+		HudMovie.AddGameEventMessage("<font color='"$GetTeamColour(CapturingTeam)$"'>"$class'Rx_Game'.static.GetTeamName(CapturingTeam)$"</font> captured the <font color='"$GetTeamColour(Building.TeamID)$"'>"$Building.GetBuildingName()$"</font>");
 }
 function AddTechBuildingLostMessage(PlayerReplicationInfo Capturer, Rx_Building_Team_Internals Building, byte LosingTeam)
 {
 	local byte InstigatingTeam;
 
-	if (Capturer != None)
+	if(CanvasMain != None && Capturer != None)
 		CanvasMain.AddMessage(GetColouredName(Capturer) $" neutralized the "$ Building.GetBuildingName(), 10.0, 4);
-	else
+	else if(CanvasMain != None)
 	{
 		InstigatingTeam = LosingTeam == TEAM_GDI ? TEAM_Nod : TEAM_GDI;
 		CanvasMain.AddMessage(class'Rx_Game'.static.GetTeamName(InstigatingTeam) $" neutralized the "$ Building.GetBuildingName(), 10.0, 4);
+	}
+	else if(Capturer != None)
+		HudMovie.AddGameEventMessage(GetColouredName(Capturer) $" neutralized the <font color='"$GetTeamColour(LosingTeam)$"'>"$Building.GetBuildingName()$"</font>");
+	else
+	{
+		InstigatingTeam = LosingTeam == TEAM_GDI ? TEAM_Nod : TEAM_GDI;
+		HudMovie.AddGameEventMessage("<font color='"$GetTeamColour(InstigatingTeam)$"'>"$class'Rx_Game'.static.GetTeamName(InstigatingTeam)$"</font> neutralized the <font color='"$GetTeamColour(LosingTeam)$"'>"$Building.GetBuildingName()$"</font>");
 	}
 }
 
@@ -2845,18 +3019,24 @@ function AddDeployedMessage(PlayerReplicationInfo Deployer, class<Rx_Weapon_Depl
 {
 	if(CanvasMain != None)
 		CanvasMain.AddMessage(GetColouredName(Deployer) $" deployed "$ DeployedClass.default.DeployableName, 10.0, 4);
+	else
+		HudMovie.AddGameEventMessage(GetColouredName(Deployer) $" deployed <font color='"$GetTeamColour(Deployer.GetTeamNum())$"'>"$DeployedClass.default.DeployableName$"</font>");
 }
 
 function AddDisarmedMessage(PlayerReplicationInfo Disarmer, class<Rx_Weapon_DeployedBeacon> DeployedClass, byte DeployedTeam )
 {
 	if(CanvasMain != None)
 		CanvasMain.AddMessage(GetColouredName(Disarmer) $" disarmed "$ DeployedClass.default.DeployableName, 10.0, 4);
+	else
+		HudMovie.AddGameEventMessage(GetColouredName(Disarmer) $" disarmed <font color='"$GetTeamColour(DeployedTeam)$"'>"$DeployedClass.default.DeployableName$"</font>");
 }
 
 function AddTeamJoinMessage(PlayerReplicationInfo Player, UTTeamInfo NewTeam)
 {
 	if(CanvasMain != None)
 		CanvasMain.AddMessage(Player.PlayerName @ "joined" @ class'Rx_Game'.static.GetTeamName(NewTeam.GetTeamNum()), 8.0, 4);
+	else
+		HudMovie.AddGameEventMessage("<font color='"$GetTeamColour(NewTeam.GetTeamNum())$"'>"$CleanHTMLMessage(Player.PlayerName)$"</font> joined <font color='"$GetTeamColour(NewTeam.GetTeamNum())$"'>"$class'Rx_Game'.static.GetTeamName(NewTeam.GetTeamNum())$"</font>");
 }
 
 function AddFakedTeamJoinMessage(string PlayerName, int TeamIndex)
@@ -2864,30 +3044,43 @@ function AddFakedTeamJoinMessage(string PlayerName, int TeamIndex)
 	LocalPlayer( GetALocalPlayerController().Player).ViewportClient.ViewportConsole.OutputText( PlayerName@class'GameMessage'.Default.NewTeamMessage@ class'Rx_Game'.static.GetTeamName(TeamIndex)$class'GameMessage'.Default.NewTeamMessageTrailer );
 	if(CanvasMain != None)
 		CanvasMain.AddMessage(PlayerName @ "joined" @ class'Rx_Game'.static.GetTeamName(TeamIndex), 8.0, 4);
+	else
+		HudMovie.AddGameEventMessage("<font color='"$GetTeamColour(TeamIndex)$"'>"$CleanHTMLMessage(PlayerName)$"</font> joined <font color='"$GetTeamColour(TeamIndex)$"'>"$class'Rx_Game'.static.GetTeamName(TeamIndex)$"</font>");
 }
 
 function AddDeathMessage(PlayerReplicationInfo Killer, class<DamageType> DmgType)
 {
-	if (Killer == None)
+	if(CanvasMain != None && Killer == None)
 		CanvasMain.AddMessage("You have died.", 8.0, 4);
-	else if (Killer == PlayerOwner.PlayerReplicationInfo)
+	else if(CanvasMain != None && Killer == PlayerOwner.PlayerReplicationInfo)
 		CanvasMain.AddMessage("You killed yourself.", 8.0, 4);
-	else
+	else if(CanvasMain != None)
 		CanvasMain.AddMessage("You were killed by "$GetColouredName(Killer)$".", 8.0, 4);
-
+	else if(Killer == None)
+		HudMovie.AddDeathMessage("You have died.", DmgType, Killer);
+	else if(Killer == PlayerOwner.PlayerReplicationInfo)
+		HudMovie.AddDeathMessage("You killed yourself.", DmgType, Killer);
+	else
+		HudMovie.AddDeathMessage("You were killed by "$GetColouredName(Killer)$".", DmgType, Killer);
 }
 
 function AddVehicleDeathMessage(PlayerReplicationInfo Killer, class<DamageType> DmgType)
 {
-	if (CanvasMain == none)
+	if(CanvasMain == none && (HudMovie == none || !HudMovie.bMovieIsOpen))
 		return;
 
-	if (Killer == None)
+	if(CanvasMain != None && Killer == None)
 		CanvasMain.AddMessage("Vehicle destroyed.", 8.0, 4);
-	else if (Killer == PlayerOwner.PlayerReplicationInfo)
+	else if(CanvasMain != None && Killer == PlayerOwner.PlayerReplicationInfo)
 		CanvasMain.AddMessage("You destroyed your Vehicle.", 8.0, 4);
-	else
+	else if(CanvasMain != None)
 		CanvasMain.AddMessage("Vehicle destroyed by "$GetColouredName(Killer)$".", 8.0, 4);
+	else if(Killer == None)
+		HudMovie.AddVehicleDeathMessage("Vehicle destroyed.", DmgType, Killer);
+	else if(Killer == PlayerOwner.PlayerReplicationInfo)
+		HudMovie.AddVehicleDeathMessage("You destroyed your Vehicle.", DmgType, Killer);
+	else
+		HudMovie.AddVehicleDeathMessage("Vehicle destroyed by "$GetColouredName(Killer)$".", DmgType, Killer);
 }
 
 
@@ -3169,7 +3362,10 @@ function DrawAdditionalPlayerInfo(bool bEnable)
 exec function startchat()
 {
 	if (WorldInfo.NetMode != NM_Standalone) {
-		Rx_Controller(PlayerOwner).StartTyping("Say ");
+		if(CanvasMain != None)
+			Rx_Controller(PlayerOwner).StartTyping("Say ");
+		else
+			HudMovie.startchat();
 	}
 }
 
@@ -3177,7 +3373,10 @@ exec function startchat()
 exec function startteamchat()
 {
 	if (WorldInfo.NetMode != NM_Standalone) {
-		Rx_Controller(PlayerOwner).StartTyping("TeamSay ");
+		if(CanvasMain != None)
+			Rx_Controller(PlayerOwner).StartTyping("TeamSay ");
+		else
+			HudMovie.startteamchat();
 	}
 }
 
@@ -3185,7 +3384,10 @@ exec function startteamchat()
 exec function startprivatechat()
 {
 	if (WorldInfo.NetMode != NM_Standalone) {
-		Rx_Controller(PlayerOwner).StartTyping("PrivateSay ");
+		if(CanvasMain != None)
+			Rx_Controller(PlayerOwner).StartTyping("PrivateSay ");
+		else
+			HudMovie.startprivatechat();
 	}
 }
 
@@ -3193,7 +3395,10 @@ exec function startprivatechat()
 exec function starthostprivatechat()
 {
 	if (WorldInfo.NetMode != NM_Standalone) {
-		Rx_Controller(PlayerOwner).StartTyping("PrivateSayHost ");
+		if(CanvasMain != None)
+			Rx_Controller(PlayerOwner).StartTyping("PrivateSayHost ");
+		else
+			HudMovie.starthostprivatechat();
 	}
 }
 

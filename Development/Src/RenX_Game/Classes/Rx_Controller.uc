@@ -1396,6 +1396,8 @@ function DisableVoteMenu(optional bool Destroy = false)
 	}
 	if(Rx_HUD(myHUD).CanvasMain != None)
 		Rx_HUD(myHUD).CanvasMain.SetSideMenuVisible(false);
+	else if(Rx_HUD(myHUD).HudMovie != None)
+		Rx_HUD(myHUD).HudMovie.SideMenuVis(false);
 }
 
 function CancelCommandMenuSelection()
@@ -1847,6 +1849,8 @@ reliable client function PMHostLoopback(string SayInput)
 	Rx_HUD(myHUD).PrivateChatMessageLog $= fMsg $ "\n";
 	if(Rx_HUD(myHUD).CanvasMain != None)
 		Rx_HUD(myHUD).CanvasMain.AddMessage(S,8.0,0);
+	else if(Rx_HUD(myHUD).HudMovie != None)
+		Rx_HUD(myHUD).HudMovie.AddChatMessage(fMsg, S);
 }
 
 function PMHostCooldown()
@@ -2828,13 +2832,25 @@ state Dead
         if(LastHitLoc != vect(0,0,0) && LastHitLocBlendPct < 1.0f && DesiredFOV > 10.0f)
         	DesiredFOV -= DeltaTime * (VSize(LastHitLoc - Viewtarget.location) / 100.0f);
 
-		if ( Rx_HUD(myHUD) != None && Rx_HUD(myHUD).CanvasMain != None && !IsSpectating() && (MinRespawnDelay+1 - GetTimerCount() > 1) && (MinRespawnDelay - GetTimerCount()) <= MinRespawnDelay)
+		if ( Rx_HUD(myHUD) != None && !IsSpectating() && (MinRespawnDelay+1 - GetTimerCount() > 1) && (MinRespawnDelay - GetTimerCount()) <= MinRespawnDelay)
 		{
-			Rx_HUD(myHUD).CanvasMain.SetGameplayTip("Respawn available in"@int(MinRespawnDelay+1-GetTimerCount()));
+			if(Rx_HUD(myHUD).CanvasMain != None)
+				Rx_HUD(myHUD).CanvasMain.SetGameplayTip("Respawn available in"@int(MinRespawnDelay+1-GetTimerCount()));
+			else if(Rx_HUD(myHUD).HudMovie != None)
+			{
+				Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetVisible(true);
+				Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetString("htmlText", "Respawn available in"@int(MinRespawnDelay+1-GetTimerCount()));
+			}
 		}
-		else if(Rx_HUD(myHUD) != None && Rx_HUD(myHUD).CanvasMain != None)
+		else if(Rx_HUD(myHUD) != None)
 		{
-			Rx_HUD(myHUD).CanvasMain.SetGameplayTip("");
+			if(Rx_HUD(myHUD).CanvasMain != None)
+				Rx_HUD(myHUD).CanvasMain.SetGameplayTip("");
+			else if(Rx_HUD(myHUD).HudMovie != None)
+			{
+				Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetString("htmlText", "");
+				Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetVisible(false);
+			}
 		}
 	}
 
@@ -3026,6 +3042,8 @@ state Dead
 			SetTimer(1,true,'setRespawnUiCounter');
 			if(Rx_HUD(myHUD) != None && Rx_HUD(myHUD).CanvasMain != None)
 				Rx_HUD(myHUD).CanvasMain.SetGameplayTip("Respawn available in"@int(MinRespawnDelay));
+			else if(Rx_HUD(myHUD) != None && Rx_HUD(myHUD).HudMovie != None)
+				Rx_HUD(myHUD).HudMovie.setRespawnCounter(MinRespawnDelay);
 		}
 
 		CleanOutSavedMoves();
@@ -3052,11 +3070,15 @@ state Dead
 		{
 			if(Rx_HUD(myHUD) != None && Rx_HUD(myHUD).CanvasMain != None)
 				Rx_HUD(myHUD).CanvasMain.SetGameplayTip("Respawn available in"@int(MinRespawnDelay-FFloor(GetTimerCount())));
+			else if(Rx_HUD(myHUD) != None && Rx_HUD(myHUD).HudMovie != None)
+				Rx_HUD(myHUD).HudMovie.setRespawnCounter(int(MinRespawnDelay-FFloor(GetTimerCount())));
 		}
 		else
 		{
 			if(Rx_HUD(myHUD) != None && Rx_HUD(myHUD).CanvasMain != None)
 				Rx_HUD(myHUD).CanvasMain.SetGameplayTip("");
+			else if(Rx_HUD(myHUD) != None && Rx_HUD(myHUD).HudMovie != None)
+				Rx_HUD(myHUD).HudMovie.setRespawnCounter(0);
 		}
 	}
 
@@ -7334,8 +7356,54 @@ reliable client function PlayStartupMessage(byte StartupStage)
 	local String ReadyMessage;
 	local String CountdownMessage;
 
-	if(Rx_HUD(myHUD) == None || Rx_HUD(myHUD).CanvasMain == None)
+	if(Rx_HUD(myHUD) == None)
 		return;
+
+	if(Rx_HUD(myHUD).CanvasMain == None)
+	{
+		if(Rx_HUD(myHUD).HudMovie == None)
+			return;
+
+		Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetVisible(true);
+		Rx_HUD(myHUD).HudMovie.SubtitlesText.SetString("htmlText", "");
+		Rx_HUD(myHUD).HudMovie.ResizedScreenCheck();
+		if(Rx_HUD(myHUD).GIHudMovie != None)
+			Rx_HUD(myHUD).GIHudMovie.ResizedScreenCheck();
+
+		if(!bPlayerIsReady)
+			ReadyMessage = "You are <font color='#ff0000'>NOT READY</font>.\nPress Fire to ready up";
+		else
+			ReadyMessage = "You are <font color='#00ff00'>READY</font>";
+
+		if(!bMatchcountdownStarted && StartupStage == 0)
+		{
+			Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetString("htmlText", "Waiting for other players \n\n"$ReadyMessage);
+			Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.counter").SetVisible(false);
+			Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.tf").SetVisible(false);
+			Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.ready").SetVisible(true);
+			Rx_HUD(myHUD).HudMovie.setReadyText("Waiting");
+			Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui").setBool("disableArrowAD", true);
+		}
+		else if(StartupStage >= 250)
+		{
+			Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetString("htmlText", "Match begins in "$(261-StartupStage)$"\n\n"$ReadyMessage);
+			bMatchcountdownStarted = true;
+			Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.counter").SetVisible(true);
+			Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.tf").SetVisible(true);
+			Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.ready").SetVisible(false);
+			Rx_HUD(myHUD).HudMovie.setRespawnCounter(261-StartupStage);
+		}
+		else if(bMatchcountdownStarted && StartupStage >= 0)
+		{
+			Rx_HUD(myHUD).HudMovie.GameplayTipsText.SetString("htmlText", "Match begins in "$(5-StartupStage)$"\n\n"$ReadyMessage);
+			Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.counter").SetVisible(true);
+			Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.tf").SetVisible(true);
+			Rx_HUD(myHUD).HudMovie.GetVariableObject("_root.Cinema.respawn_ui.hex_spawn.spawn.ready").SetVisible(false);
+			Rx_HUD(myHUD).HudMovie.setRespawnCounter(5-StartupStage);
+		}
+
+		return;
+	}
 
 	if(!bPlayerIsReady)
 		ReadyMessage = "You are NOT READY - Press Fire to ready up";
@@ -7877,6 +7945,8 @@ unreliable client function ClientSendFeelGoodMessage(coerce string VPString, opt
 
 		if(Rx_HUD(myHud) != None && Rx_HUD(myHud).CanvasMain != None)
 			Rx_HUD(myHud).CanvasMain.AddMessage(FeatStr,5.0,2);
+		else if(Rx_HUD(myHud) != None && Rx_HUD(myHud).HudMovie != None)
+			Rx_HUD(myHud).HudMovie.AddVPMessage(FeatStr, true);
 	}
 
 

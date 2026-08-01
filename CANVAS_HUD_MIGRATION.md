@@ -1,8 +1,15 @@
 # Canvas HUD migration
 
-The always-on Renegade X gameplay HUD no longer starts `Rx_GFxHud` or
-`Rx_GFxGameinfoHud`. `Rx_HUD_CanvasMain` now renders gameplay information
-through UE3 `Canvas`.
+The always-on Renegade X gameplay HUD can use either the original Scaleform
+movies (`Rx_GFxHud` and `Rx_GFxGameinfoHud`) or `Rx_HUD_CanvasMain`, selected
+through `[RenX_Game.Rx_HUD_Config] bUseCanvasHUD` in the RenegadeX config.
+Only the selected implementation is initialized for a match.
+
+Canvas positioning is configurable through `[RenX_Game.Rx_HUD_CanvasConfig]`.
+Base settings can be refined by cumulative aspect-ratio, exact-resolution and
+map-specific overrides. The configurable groups cover global scale and offset,
+screen-edge safe zones, minimap scale, message scale, scoreboard scale and
+tactical-overview scale.
 
 ## Canvas coverage
 
@@ -23,6 +30,13 @@ migration. The existing Canvas purchase terminal is unchanged.
 
 ## Validation
 
+- Dual-HUD Win32 full UnrealScript compile: 0 errors
+- Runtime selection: standalone `CNC-Field` initializes Canvas when
+  `bUseCanvasHUD=true`
+- Runtime selection: standalone `CNC-Field` initializes `Rx_GFxHud` when
+  `bUseCanvasHUD=false`
+- Layered runtime config: at 640x480 on `CNC-Field`, independent matching
+  aspect-ratio, exact-resolution and map overrides composed as configured
 - Win64 full UnrealScript compile: 0 errors
 - Pre-existing compile warnings: 2, both for the missing
   `TS_HUD_Canvas.buildMenu.Materials.MI_Button_Simple` asset

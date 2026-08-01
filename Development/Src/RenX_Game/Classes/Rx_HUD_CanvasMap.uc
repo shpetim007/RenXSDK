@@ -33,6 +33,26 @@ var array<Actor> CachedRadarActors;
 var WorldInfo CachedRadarWorld;
 var float NextRadarListRefreshTime;
 var bool bRadarListReady;
+var float LayoutGlobalScale;
+var float LayoutHorizontalOffset;
+var float LayoutVerticalOffset;
+var float LayoutHorizontalSafeZone;
+var float LayoutVerticalSafeZone;
+var float LayoutMinimapScale;
+var float LayoutOverviewScale;
+
+function SetLayout(float GlobalScale, float HorizontalOffset, float VerticalOffset,
+	float HorizontalSafeZone, float VerticalSafeZone, float InMinimapScale,
+	float InOverviewScale)
+{
+	LayoutGlobalScale=GlobalScale;
+	LayoutHorizontalOffset=HorizontalOffset;
+	LayoutVerticalOffset=VerticalOffset;
+	LayoutHorizontalSafeZone=HorizontalSafeZone;
+	LayoutVerticalSafeZone=VerticalSafeZone;
+	LayoutMinimapScale=InMinimapScale;
+	LayoutOverviewScale=InOverviewScale;
+}
 
 function Update(float DeltaTime, Rx_HUD HUD)
 {
@@ -65,10 +85,11 @@ function DrawMinimap(Pawn CenterPawn)
 	if(!CanDrawMap(CenterPawn))
 		return;
 
-	S = GetResolutionScale();
-	MinimapSize = FClamp(Canvas.SizeY*0.245, 150*S, 244*S);
-	MinimapX = 14*S;
-	MinimapY = Canvas.SizeY-MinimapSize-12*S;
+	S = GetResolutionScale()*LayoutGlobalScale;
+	MinimapSize = FClamp(Canvas.SizeY*0.245*LayoutMinimapScale,
+		150*S*LayoutMinimapScale, 244*S*LayoutMinimapScale);
+	MinimapX = (14+LayoutHorizontalSafeZone+LayoutHorizontalOffset)*S;
+	MinimapY = Canvas.SizeY-MinimapSize-(12+LayoutVerticalSafeZone-LayoutVerticalOffset)*S;
 	MinimapWorldRange = GetMinimapRange();
 
 	DrawMapFrame(MinimapX,MinimapY,MinimapSize,MinimapSize,false);
@@ -761,6 +782,9 @@ function Color NeutralColor()
 
 DefaultProperties
 {
+	LayoutGlobalScale=1.0
+	LayoutMinimapScale=1.0
+	LayoutOverviewScale=1.0
 	WhiteTexture=Texture2D'EngineResources.WhiteSquareTexture'
 	// Reuse the filtered legacy blip artwork for Canvas fallbacks instead of
 	// drawing stepped procedural rectangles. Team color is applied at draw time.

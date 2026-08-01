@@ -81,12 +81,25 @@ var array<OverviewCountRow> CachedCharacterRows;
 var array<OverviewCountRow> CachedVehicleRows;
 var int CachedOverviewTeam;
 var float NextOverviewCountRefreshTime;
+var int CachedLayoutWidth;
+var int CachedLayoutHeight;
+var string CachedLayoutMapName;
+var float LayoutGlobalScale;
+var float LayoutHorizontalOffset;
+var float LayoutVerticalOffset;
+var float LayoutHorizontalSafeZone;
+var float LayoutVerticalSafeZone;
+var float LayoutMinimapScale;
+var float LayoutMessageScale;
+var float LayoutScoreboardScale;
+var float LayoutOverviewScale;
 
 function Update(float DeltaTime, Rx_HUD HUD)
 {
 	local int i;
 
 	Super.Update(DeltaTime, HUD);
+	ResolveLayout();
 	if(!bHUDTextRenderInfoReady && Canvas!=None)
 	{
 		// Canvas selects SimpleElementPixelShader.usf's distance-field font
@@ -105,6 +118,9 @@ function Update(float DeltaTime, Rx_HUD HUD)
 	}
 	if(MapRenderer == None)
 		MapRenderer = new class'Rx_HUD_CanvasMap';
+	MapRenderer.SetLayout(LayoutGlobalScale, LayoutHorizontalOffset,
+		LayoutVerticalOffset, LayoutHorizontalSafeZone, LayoutVerticalSafeZone,
+		LayoutMinimapScale, LayoutOverviewScale);
 	MapRenderer.Update(DeltaTime, HUD);
 	for(i = Messages.Length - 1; i >= 0; --i)
 	{
@@ -117,6 +133,33 @@ function Update(float DeltaTime, Rx_HUD HUD)
 		VoteText = "";
 		VoteExpireTime = 0;
 	}
+}
+
+function ResolveLayout()
+{
+	local string CurrentMapName;
+
+	if(Canvas == None || RenxHud == None || RenxHud.WorldInfo == None)
+		return;
+
+	CurrentMapName = RenxHud.WorldInfo.GetMapName(true);
+	if(CachedLayoutWidth == Canvas.SizeX && CachedLayoutHeight == Canvas.SizeY
+		&& CachedLayoutMapName == CurrentMapName)
+		return;
+
+	CachedLayoutWidth = Canvas.SizeX;
+	CachedLayoutHeight = Canvas.SizeY;
+	CachedLayoutMapName = CurrentMapName;
+	class'Rx_HUD_CanvasConfig'.static.ResolveLayout(
+		CachedLayoutWidth, CachedLayoutHeight, CachedLayoutMapName,
+		LayoutGlobalScale, LayoutHorizontalOffset, LayoutVerticalOffset,
+		LayoutHorizontalSafeZone, LayoutVerticalSafeZone, LayoutMinimapScale,
+		LayoutMessageScale, LayoutScoreboardScale, LayoutOverviewScale);
+
+	`log("Rx_HUD Canvas layout:" @ CachedLayoutWidth$"x"$CachedLayoutHeight
+		@ CachedLayoutMapName @ "scale="$LayoutGlobalScale
+		@ "minimap="$LayoutMinimapScale @ "messages="$LayoutMessageScale
+		@ "scoreboard="$LayoutScoreboardScale @ "overview="$LayoutOverviewScale);
 }
 
 function AddMessage(string InText, optional float LifeTime = 8.0, optional byte Channel = 0, optional Color InColor)
@@ -315,26 +358,26 @@ function DrawFullScoreboard()
 	if(GRI == None)
 		return;
 
-	S = GetScale();
-	W = FMin(Canvas.SizeX*0.96, 1120*S);
-	X = (Canvas.SizeX-W)*0.5;
-	Y = Canvas.SizeY*0.035;
-	H = Canvas.SizeY*0.92;
+	S = GetScale()*LayoutScoreboardScale;
+	W = FMin(Canvas.SizeX*0.96-2*LayoutHorizontalSafeZone*S, 1120*S);
+	H = FMin(Canvas.SizeY*0.92-2*LayoutVerticalSafeZone*S, 662*S);
+	X = (Canvas.SizeX-W)*0.5+LayoutHorizontalOffset*S;
+	Y = (Canvas.SizeY-H)*0.5+(LayoutVerticalSafeZone+LayoutVerticalOffset)*S;
 	RowH = 17*S;
 	ColumnW = (W-24*S)*0.5;
 	RefreshScoreboardCache(GRI);
 	DrawPanel(X,Y,W,H,PanelColor);
 	DrawAccent(X,Y,W*0.5,3*S,GDIColor);
 	DrawAccent(X+W*0.5,Y,W*0.5,3*S,NodColor);
-	DrawTextAt(GRI.bMatchIsOver ? "MATCH RESULTS" : "RENEGADE X", Canvas.SizeX*0.5, Y+8*S, ColorWhite, 0.78*S, 1);
-	DrawTextAt(Caps(RenxHud.WorldInfo.GetMapName(true)), Canvas.SizeX*0.5, Y+30*S, NeutralColor, 0.45*S, 1);
+	DrawTextAt(GRI.bMatchIsOver ? "MATCH RESULTS" : "RENEGADE X", X+W*0.5, Y+8*S, ColorWhite, 0.78*S, 1);
+	DrawTextAt(Caps(RenxHud.WorldInfo.GetMapName(true)), X+W*0.5, Y+30*S, NeutralColor, 0.45*S, 1);
 
 	if(GRI.bMatchIsOver)
 		DrawEndGameHeader(GRI,Y+49*S);
 
 	for(TeamIndex=TEAM_GDI; TeamIndex<=TEAM_NOD; ++TeamIndex)
 	{
-		X = (Canvas.SizeX-W)*0.5+8*S+TeamIndex*(ColumnW+8*S);
+		X = (Canvas.SizeX-W)*0.5+LayoutHorizontalOffset*S+8*S+TeamIndex*(ColumnW+8*S);
 		RowY = Y+(GRI.bMatchIsOver ? 146 : 58)*S;
 		TeamColor = TeamIndex == TEAM_GDI ? GDIColor : NodColor;
 		TeamPanelColor=PanelColor;
@@ -395,9 +438,10 @@ function DrawFullScoreboard()
 		}
 		DrawTextAt(TeamRow$" PLAYERS",X+ColumnW*0.5,RowY+3*S,TeamColor,0.43*S,1);
 	}
-	DrawScoreboardBuildings((Canvas.SizeX-W)*0.5+8*S,Y+H-70*S,W-16*S);
+	X=(Canvas.SizeX-W)*0.5+LayoutHorizontalOffset*S;
+	DrawScoreboardBuildings(X+8*S,Y+H-70*S,W-16*S);
 	if(GRI.bMatchIsOver)
-		DrawEndGameMapVote(GRI,(Canvas.SizeX-W)*0.5+W*0.2,Y+H-166*S,W*0.6);
+		DrawEndGameMapVote(GRI,X+W*0.2,Y+H-166*S,W*0.6);
 }
 
 function RefreshScoreboardCache(Rx_GRI GRI)
@@ -464,16 +508,18 @@ function DrawOverviewMap()
 	Canvas.DrawRect(Canvas.SizeX,Canvas.SizeY);
 	// Give the tactical map roughly two thirds of the horizontal layout while
 	// respecting the screen-height limit of its square terrain.
-	MapSize = FMin(Canvas.SizeY*0.88,Canvas.SizeX*0.667);
-	X = Canvas.SizeX-MapSize-18*S;
-	Y = 26*S;
+	MapSize = FMin(Canvas.SizeY*0.88,Canvas.SizeX*0.667)*LayoutOverviewScale;
+	MapSize = FMin(MapSize,Canvas.SizeY-(60+2*LayoutVerticalSafeZone)*S);
+	X = Canvas.SizeX-MapSize-(18+LayoutHorizontalSafeZone-LayoutHorizontalOffset)*S;
+	Y = (26+LayoutVerticalSafeZone+LayoutVerticalOffset)*S;
 	DrawTextAt("TACTICAL OVERVIEW",X+MapSize*0.5,Y-24*S,ColorWhite,0.68*S,1);
 	if(MapRenderer != None)
 		MapRenderer.DrawOverview(CenterPawn,X,Y,MapSize);
-	DrawOverviewRoster(14*S,Y,Canvas.SizeX-MapSize-46*S,MapSize);
+	DrawOverviewRoster((14+LayoutHorizontalSafeZone+LayoutHorizontalOffset)*S,Y,
+		Canvas.SizeX-MapSize-(46+2*LayoutHorizontalSafeZone)*S,MapSize);
 	BuildingY=Y+MapSize+5*S;
-	BuildingH=FMin(72*S,Canvas.SizeY-BuildingY-7*S);
-	BuildingY=Canvas.SizeY-BuildingH-7*S;
+	BuildingH=FMin(72*S,Canvas.SizeY-BuildingY-(7+LayoutVerticalSafeZone)*S);
+	BuildingY=Canvas.SizeY-BuildingH-(7+LayoutVerticalSafeZone-LayoutVerticalOffset)*S;
 	DrawOverviewBuildingRows(X,BuildingY,MapSize,BuildingH);
 }
 
@@ -872,8 +918,8 @@ function DrawBuildingStrip()
 	RefreshBuildingCache();
 	S=GetScale();
 	CommandW=190*S;
-	CommandX=(Canvas.SizeX-CommandW)*0.5;
-	Y=Canvas.SizeY-30*S;
+	CommandX=(Canvas.SizeX-CommandW)*0.5+LayoutHorizontalOffset*S;
+	Y=Canvas.SizeY-(30+LayoutVerticalSafeZone-LayoutVerticalOffset)*S;
 	CellSize=25*S;
 	Gap=2*S;
 	X=CommandX-Gap-CachedGDIBuildings.Length*(CellSize+Gap);
@@ -987,12 +1033,12 @@ function DrawSpectatorInfo()
 		ViewedName="FREE CAMERA";
 	S=GetScale();
 	W=FMin(Canvas.SizeX*0.52,430*S);
-	X=(Canvas.SizeX-W)*0.5;
-	Y=Canvas.SizeY*0.76;
+	X=(Canvas.SizeX-W)*0.5+LayoutHorizontalOffset*S;
+	Y=Canvas.SizeY*0.76+(LayoutVerticalOffset-LayoutVerticalSafeZone)*S;
 	DrawPanel(X,Y,W,42*S,PanelColor);
-	DrawTextAt("SPECTATING  "$ViewedName,Canvas.SizeX*0.5,Y+6*S,NeutralColor,0.5*S,1);
+	DrawTextAt("SPECTATING  "$ViewedName,X+W*0.5,Y+6*S,NeutralColor,0.5*S,1);
 	DrawTextAt("FIRE: NEXT PLAYER   ALT-FIRE: PREVIOUS   JUMP: FREE CAMERA",
-		Canvas.SizeX*0.5,Y+24*S,ColorWhite,0.32*S,1);
+		X+W*0.5,Y+24*S,ColorWhite,0.32*S,1);
 }
 
 function DrawMatchInfo()
@@ -1010,8 +1056,8 @@ function DrawMatchInfo()
 	W = 190*S;
 	H = 26*S;
 	TeamW=48*S;
-	X = (Canvas.SizeX - W) * 0.5;
-	Y = Canvas.SizeY-30*S;
+	X = (Canvas.SizeX - W) * 0.5+LayoutHorizontalOffset*S;
+	Y = Canvas.SizeY-(30+LayoutVerticalSafeZone-LayoutVerticalOffset)*S;
 	DrawPanel(X, Y, W, H, PanelColor);
 	DrawAccent(X,Y,TeamW,2*S,GDIColor);
 	DrawAccent(X+W-TeamW,Y,TeamW,2*S,NodColor);
@@ -1117,7 +1163,8 @@ function DrawCompass()
 		Heading = "W";
 
 	S = GetScale();
-	DrawTextAt(Heading @ Degrees $ Chr(176), Canvas.SizeX*0.5, 51*S, ColorWhite, 0.62*S, 1);
+	DrawTextAt(Heading @ Degrees $ Chr(176), Canvas.SizeX*0.5+LayoutHorizontalOffset*S,
+		(51+LayoutVerticalSafeZone+LayoutVerticalOffset)*S, ColorWhite, 0.62*S, 1);
 }
 
 function DrawPawnInfo()
@@ -1181,8 +1228,9 @@ function DrawPawnInfo()
 	W = 150*S;
 	H = 150*S;
 	X = (MapRenderer != None && MapRenderer.MinimapSize > 0)
-		? MapRenderer.MinimapX+MapRenderer.MinimapSize+8*S : 12*S;
-	Y = Canvas.SizeY-H-34*S;
+		? MapRenderer.MinimapX+MapRenderer.MinimapSize+8*S
+		: (12+LayoutHorizontalSafeZone+LayoutHorizontalOffset)*S;
+	Y = Canvas.SizeY-H-(34+LayoutVerticalSafeZone-LayoutVerticalOffset)*S;
 	if(MaxHealth>0 && float(Health)/MaxHealth<0.33)
 	{
 		Canvas.SetDrawColor(255,35,25,byte(150+80*Abs(Sin(RenxHud.WorldInfo.TimeSeconds*5))));
@@ -1244,8 +1292,8 @@ function DrawPawnInfo()
 
 		W = 250*S;
 		H = 98*S;
-		Y = Canvas.SizeY-H-12*S;
-		X = Canvas.SizeX - W - 12*S;
+		Y = Canvas.SizeY-H-(12+LayoutVerticalSafeZone-LayoutVerticalOffset)*S;
+		X = Canvas.SizeX-W-(12+LayoutHorizontalSafeZone-LayoutHorizontalOffset)*S;
 		if(Weapon!=None && Weapon.WeaponIconTexture!=None)
 			DrawTextureAspect(Weapon.WeaponIconTexture,X+W-112*S,Y+3*S,
 				104*S,44*S,ColorWhite);
@@ -1462,18 +1510,21 @@ function string VetRankStateName(int Rank)
 function DrawMessages()
 {
 	local int I, HostRows, EVARows, ChatRows, KillRows, LinesDrawn;
-	local float S, HostY, EVAY, ChatY, KillY;
+	local float S, MS, MessageX, HostY, EVAY, ChatY, KillY, MaxMessageWidth;
 	local Color C;
 
 	S=GetScale();
+	MS=S*LayoutMessageScale;
 	HostRows=0;
 	EVARows=0;
 	ChatRows=0;
 	KillRows=0;
-	HostY=8*S;
-	EVAY=HostY+3*17*S+6*S;
-	ChatY=EVAY+2*17*S+7*S;
-	KillY=ChatY+7*17*S+8*S;
+	MessageX=(14+LayoutHorizontalSafeZone+LayoutHorizontalOffset)*S;
+	MaxMessageWidth=Canvas.SizeX-MessageX-(14+LayoutHorizontalSafeZone)*S;
+	HostY=(8+LayoutVerticalSafeZone+LayoutVerticalOffset)*S;
+	EVAY=HostY+3*17*MS+6*MS;
+	ChatY=EVAY+2*17*MS+7*MS;
+	KillY=ChatY+7*17*MS+8*MS;
 	for(I=Messages.Length-1;I>=0;--I)
 	{
 		C=Messages[I].TextColor;
@@ -1482,8 +1533,8 @@ function DrawMessages()
 		{
 			if(HostRows<3)
 			{
-				LinesDrawn=DrawRichTextMessage(I,14*S,HostY+HostRows*17*S,
-					Canvas.SizeX*0.62,C,Messages[I].Channel==5 ? 0.56*S : 0.48*S,
+				LinesDrawn=DrawRichTextMessage(I,MessageX,HostY+HostRows*17*MS,
+					FMin(Canvas.SizeX*0.62,MaxMessageWidth),C,Messages[I].Channel==5 ? 0.56*MS : 0.48*MS,
 					3-HostRows);
 				HostRows+=LinesDrawn;
 			}
@@ -1492,8 +1543,8 @@ function DrawMessages()
 		{
 			if(EVARows<2)
 			{
-				LinesDrawn=DrawRichTextMessage(I,14*S,EVAY+EVARows*17*S,
-					Canvas.SizeX*0.58,C,0.46*S,2-EVARows);
+				LinesDrawn=DrawRichTextMessage(I,MessageX,EVAY+EVARows*17*MS,
+					FMin(Canvas.SizeX*0.58,MaxMessageWidth),C,0.46*MS,2-EVARows);
 				EVARows+=LinesDrawn;
 			}
 		}
@@ -1501,15 +1552,15 @@ function DrawMessages()
 		{
 			if(KillRows<5)
 			{
-				LinesDrawn=DrawRichTextMessage(I,14*S,KillY+KillRows*17*S,
-					Canvas.SizeX*0.54,C,0.46*S,5-KillRows);
+				LinesDrawn=DrawRichTextMessage(I,MessageX,KillY+KillRows*17*MS,
+					FMin(Canvas.SizeX*0.54,MaxMessageWidth),C,0.46*MS,5-KillRows);
 				KillRows+=LinesDrawn;
 			}
 		}
 		else if(ChatRows<7)
 		{
-			LinesDrawn=DrawRichTextMessage(I,14*S,ChatY+ChatRows*17*S,
-				Canvas.SizeX*0.58,C,0.46*S,7-ChatRows);
+			LinesDrawn=DrawRichTextMessage(I,MessageX,ChatY+ChatRows*17*MS,
+				FMin(Canvas.SizeX*0.58,MaxMessageWidth),C,0.46*MS,7-ChatRows);
 			ChatRows+=LinesDrawn;
 		}
 	}
@@ -1526,7 +1577,7 @@ function int DrawRichTextMessage(int MessageIndex, float X, float Y, float MaxWi
 	MaxLines=Max(1,MaxLines);
 	if(MessageIndex<0 || MessageIndex>=Messages.Length)
 		return 0;
-	S=GetScale();
+	S=GetScale()*LayoutMessageScale;
 	CursorX=X;
 	for(I=0; I<Messages[MessageIndex].Runs.Length && LineCount<MaxLines; ++I)
 	{
@@ -1716,13 +1767,13 @@ function DrawVote()
 
 	S = GetScale();
 	W = FMin(Canvas.SizeX*0.68, 570*S);
-	X = (Canvas.SizeX-W)*0.5;
-	Y = 61*S;
+	X = (Canvas.SizeX-W)*0.5+LayoutHorizontalOffset*S;
+	Y = (61+LayoutVerticalSafeZone+LayoutVerticalOffset)*S;
 	DrawPanel(X, Y, W, 61*S, PanelColor);
 	TeamColor=RenxHud.PlayerOwner.GetTeamNum()==TEAM_GDI ? GDIColor : NodColor;
 	DrawAccent(X,Y,W,3*S,TeamColor);
-	DrawTextAt("VOTE IN PROGRESS",Canvas.SizeX*0.5,Y+6*S,TeamColor,0.44*S,1);
-	DrawTextAt(VoteText, Canvas.SizeX*0.5, Y+23*S, ColorWhite, 0.53*S, 1);
+	DrawTextAt("VOTE IN PROGRESS",X+W*0.5,Y+6*S,TeamColor,0.44*S,1);
+	DrawTextAt(VoteText, X+W*0.5, Y+23*S, ColorWhite, 0.53*S, 1);
 	RxPI=Rx_PlayerInput(RenxHud.PlayerOwner.PlayerInput);
 	if(RxPI!=None)
 	{
@@ -1734,7 +1785,7 @@ function DrawVote()
 	SecondsLeft=Max(0,FCeil(VoteExpireTime-RenxHud.WorldInfo.TimeSeconds));
 	Counts="["$YesKey$"] YES "$VoteYes$"    ["$NoKey$"] NO "$VoteNo
 		$"    NEEDED "$VoteNeeded$"    "$SecondsLeft$"s";
-	DrawTextAt(Counts, Canvas.SizeX*0.5, Y+43*S, NeutralColor, 0.46*S, 1);
+	DrawTextAt(Counts, X+W*0.5, Y+43*S, NeutralColor, 0.46*S, 1);
 	TotalVotes=Max(1,VoteNeeded);
 	DrawBar(X+7*S,Y+55*S,(W-16*S)*0.5,3*S,VoteYes,TotalVotes,HealthColor);
 	DrawBar(X+W*0.5+1*S,Y+55*S,(W-16*S)*0.5,3*S,VoteNo,TotalVotes,NodColor);
@@ -1746,9 +1797,11 @@ function DrawTipsAndSubtitles()
 
 	S = GetScale();
 	if(SubtitleText != "")
-		DrawTextAt(SubtitleText, Canvas.SizeX*0.5, Canvas.SizeY*0.72, ColorWhite, 0.6*S, 1);
+		DrawTextAt(SubtitleText, Canvas.SizeX*0.5+LayoutHorizontalOffset*S,
+			Canvas.SizeY*0.72+LayoutVerticalOffset*S, ColorWhite, 0.6*S, 1);
 	if(GameplayTip != "")
-		DrawTextAt(GameplayTip, Canvas.SizeX*0.5, Canvas.SizeY*0.82, NeutralColor, 0.58*S, 1);
+		DrawTextAt(GameplayTip, Canvas.SizeX*0.5+LayoutHorizontalOffset*S,
+			Canvas.SizeY*0.82+LayoutVerticalOffset*S, NeutralColor, 0.58*S, 1);
 }
 
 function DrawSideMenu()
@@ -1760,8 +1813,8 @@ function DrawSideMenu()
 		return;
 
 	S = GetScale();
-	X = Canvas.SizeX*0.04;
-	Y = Canvas.SizeY*0.18;
+	X = Canvas.SizeX*0.04+(LayoutHorizontalSafeZone+LayoutHorizontalOffset)*S;
+	Y = Canvas.SizeY*0.18+(LayoutVerticalSafeZone+LayoutVerticalOffset)*S;
 	W = FMin(Canvas.SizeX*0.43, 430*S);
 	H = (bShowHelp ? HelpLines.Length : MenuOptions.Length) * 20*S + 30*S;
 	DrawPanel(X, Y, W, H, PanelColor);
@@ -1789,11 +1842,11 @@ function DrawLoading()
 
 	S = GetScale();
 	W = FMin(Canvas.SizeX*0.55, 430*S);
-	X = (Canvas.SizeX-W)*0.5;
-	Y = Canvas.SizeY*0.72;
+	X = (Canvas.SizeX-W)*0.5+LayoutHorizontalOffset*S;
+	Y = Canvas.SizeY*0.72+LayoutVerticalOffset*S;
 	DrawPanel(X, Y, W, 42*S, PanelColor);
 	DrawBar(X+10*S, Y+23*S, W-20*S, 9*S, LoadingProgress, 1, NeutralColor);
-	DrawTextAt(LoadingText, Canvas.SizeX*0.5, Y+5*S, ColorWhite, 0.5*S, 1);
+	DrawTextAt(LoadingText, X+W*0.5, Y+5*S, ColorWhite, 0.5*S, 1);
 }
 
 function DrawHitMarker()
@@ -1959,7 +2012,7 @@ function DrawTextAt(string Text, float X, float Y, Color TextColor, float Scale,
 
 function float GetScale()
 {
-	return FClamp(Canvas.SizeY/720.0, 0.62, 1.5);
+	return FClamp(Canvas.SizeY/720.0, 0.62, 1.5)*LayoutGlobalScale;
 }
 
 function string TwoDigits(int Value)
@@ -1993,6 +2046,11 @@ static function string StripMarkup(string Source)
 
 DefaultProperties
 {
+	LayoutGlobalScale=1.0
+	LayoutMinimapScale=1.0
+	LayoutMessageScale=1.0
+	LayoutScoreboardScale=1.0
+	LayoutOverviewScale=1.0
 	HUDFont=Font'RenxHud.Font.AgentConDB'
 	PanelColor=(R=4,G=9,B=13,A=196)
 	PanelBorderColor=(R=28,G=39,B=45,A=185)
