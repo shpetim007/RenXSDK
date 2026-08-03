@@ -1,7 +1,7 @@
 class Rx_Game_MainMenu extends Rx_Game;
 
 var config String MainMenuMovieClass;
-var Rx_GFxFrontEnd MainMenuMovie;
+var Rx_GFxFrontEnd MainMenuMovie; // retained for config compatibility; no longer started
 
 event InitGame( string Options, out string ErrorMessage )
 {
@@ -13,21 +13,14 @@ event InitGame( string Options, out string ErrorMessage )
 function StartMatch()
 {
 	local Rx_Controller PC;
-	local class<Rx_GFxFrontEnd> MovieClass;
 
 	PC = Rx_Controller(GetALocalPlayerController());
-	MovieClass = class<Rx_GFxFrontEnd>(DynamicLoadObject(MainMenuMovieClass,class'Class'));
-
-	if(MainMenuMovie != None)
-		return;
-
-	if(PC != None && MovieClass != None && PC.myHUD != none)
+	if(PC != None && PC.myHUD != none)
 	{
-		Rx_HUD(PC.myHUD).bShowHUD = false;
-		MainMenuMovie = new(PC) MovieClass;
-		MainMenuMovie.SetTimingMode(TM_Real);
-		MainMenuMovie.Start();
-
+		Rx_HUD(PC.myHUD).bShowHUD = true;
+		if(Rx_HUD(PC.myHUD).CanvasFrontEnd == none)
+			Rx_HUD(PC.myHUD).CanvasFrontEnd = new class'Rx_HUD_CanvasFrontEnd';
+		Rx_HUD(PC.myHUD).SetInputCursorActiveNoDelay(true);
 	}
 }
 

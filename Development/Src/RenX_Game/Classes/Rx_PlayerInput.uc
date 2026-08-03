@@ -208,10 +208,27 @@ function TriggerRadioCommand(int KeyIndex) {
 function bool InputKey(int ControllerId, name Key, EInputEvent Event, float AmountDepressed = 1.f, bool bGamepad = FALSE)
 {
 	local Rx_Controller pc;
+	local Rx_HUD RxHUD;
 
 	pc = Rx_Controller(Player.Actor);
+	RxHUD = Rx_HUD(pc.myHUD);
 
-	Rx_HUD(Rx_Controller(Player.Actor).myHUD).OnKeyPress(Key);
+	// Canvas UI actions must occur once per physical press. Calling this on
+	// release as well made list navigation advance twice and re-opened pause
+	// immediately after its Escape close handler ran.
+	if(Event == IE_Pressed)
+	{
+		// While the Canvas pause menu owns the cursor, this input function
+		// consumes Escape before the normal TogglePauseMenu binding executes.
+		// Close it here and consume this exact press to prevent a reopen.
+		if(Key == 'Escape' && RxHUD != None && RxHUD.CanvasPauseMenu != None && RxHUD.CanvasPauseMenu.bEnabled)
+		{
+			RxHUD.CloseCanvasPauseMenu();
+			return true;
+		}
+		if(RxHUD != None)
+			RxHUD.OnKeyPress(Key);
+	}
 
 	if(bCursorEnabled)
 	{

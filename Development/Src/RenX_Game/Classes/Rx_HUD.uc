@@ -51,6 +51,8 @@ var Rx_HUD_AutoBalance autoBalancer;
 var Rx_HUD_DominationBar_Comp DominationBar; 
 var Rx_HUD_Cursor RxCursor;
 var Rx_HUD_CanvasMain CanvasMain;
+var Rx_HUD_CanvasFrontEnd CanvasFrontEnd;
+var Rx_HUD_CanvasPauseMenu CanvasPauseMenu;
 var bool bUsingCanvasHUD;
 
 var bool DrawCText, DrawTargetBox,DrawPlayerNames,DrawCaptureProgress, DrawFlashHUD; //DrawC_Visuals; 
@@ -108,6 +110,15 @@ var float DrawStartModifier;
 var bool bDrawAdditionalPlayerInfo;
 
 var string PlayAreaAnnouncementText;
+
+struct CanvasChatLogEntry
+{
+	var string SpeakerName;
+	var string Text;
+	var Color TextColor;
+	var bool bPrivate;
+};
+var array<CanvasChatLogEntry> CanvasChatHistory;
 var string PlayAreaAnnouncementCount;
 var protected array<Rx_Building> BuildingsGdi;
 var protected array<Rx_Building> BuildingsNod;
@@ -570,6 +581,11 @@ function Message( PlayerReplicationInfo PRI, coerce string Msg, name MsgType, op
 			LifeTime = FMax(LifeTime,7.0);
 		CanvasMain.AddMessage(fMsg, LifeTime, MessageType);
 	}
+	// The full pause-menu chat history is independent of the short-lived HUD
+	// feed. Keep only actual player/public and private conversations here.
+	if(MsgType == 'Say' || MsgType == 'TeamSay' || MsgType == 'Special'
+		|| MsgType == 'Commander' || MsgType == 'PM' || MsgType == 'PM_Loopback')
+		AddCanvasChatHistory(cName, rMsg, MsgType == 'PM' || MsgType == 'PM_Loopback', PRI);
 
 	// Add to currently active GUI | Edit by Yosh : Don't bother spamming the non-HUD chat logs with radio messages... it's pretty pointless for them to be there. 
 
@@ -847,6 +863,30 @@ function CreateUIInterface()
 	CreateHudCompoenents();
 }
 
+function AddCanvasChatHistory(string SpeakerName, string Text, bool bPrivate, PlayerReplicationInfo PRI)
+{
+	local CanvasChatLogEntry Entry;
+	Entry.SpeakerName = SpeakerName;
+	Entry.Text = Text;
+	Entry.bPrivate = bPrivate;
+	Entry.TextColor = MakeColor(255,255,255,255);
+	if(bPrivate)
+	{
+		Entry.TextColor.R = 50; Entry.TextColor.G = 135; Entry.TextColor.B = 255;
+	}
+	else if(PRI != None && PRI.GetTeamNum() == TEAM_GDI)
+	{
+		Entry.TextColor.R = 255; Entry.TextColor.G = 198; Entry.TextColor.B = 0;
+	}
+	else if(PRI != None && PRI.GetTeamNum() == TEAM_NOD)
+	{
+		Entry.TextColor.R = 235; Entry.TextColor.G = 45; Entry.TextColor.B = 35;
+	}
+	CanvasChatHistory.AddItem(Entry);
+	while(CanvasChatHistory.Length > 200)
+		CanvasChatHistory.Remove(0,1);
+}
+
 //Create and initialize the HUDMovie.
 function CreateHUDMovie()
 {
@@ -1095,6 +1135,17 @@ event PostRender()
 	if (SizeX != Canvas.SizeX || SizeY != Canvas.SizeY)
 		PreCalcValues();
 
+	// The front-end map does not create gameplay HUD components.  Draw its
+	// Canvas UI before the normal bShowHUD early-out.
+	if(IsMainMenu() && CanvasFrontEnd != None)
+	{
+		RenderDelta = WorldInfo.TimeSeconds - LastHUDRenderTime;
+		LastHUDRenderTime = WorldInfo.TimeSeconds;
+		CanvasFrontEnd.Update(RenderDelta, self);
+		CanvasFrontEnd.Draw();
+		return;
+	}
+
 	// Set up delta time
 	RenderDelta = WorldInfo.TimeSeconds - LastHUDRenderTime;
 	LastHUDRenderTime = WorldInfo.TimeSeconds;
@@ -1166,6 +1217,12 @@ event PostRender()
 		return;
 
 	DrawHudCompoenents();
+	if(CanvasPauseMenu != None && CanvasPauseMenu.bEnabled)
+	{
+		CanvasPauseMenu.Update(RenderDelta,self);
+		CanvasPauseMenu.Draw();
+		return;
+	}
 	
 	if((CanvasMain==None || !CanvasMain.bShowOverview)
 		&& PlayerOwner.IsSpectating() && PlayerOwner.WorldInfo.GRI.bMatchHasBegun)
@@ -3228,6 +3285,25 @@ function float GetHitEffectAplha()
  */
 function TogglePauseMenu()
 {
+	if(bUsingCanvasHUD)
+	{
+		if(CanvasPauseMenu == None)
+			CanvasPauseMenu = new class'Rx_HUD_CanvasPauseMenu';
+		if(CanvasPauseMenu.bEnabled)
+		{
+			CloseCanvasPauseMenu();
+			return;
+		}
+		CanvasPauseMenu.bEnabled = true;
+		PlayerOwner.SetPause(true);
+		SetVisible(true);
+		SetInputCursorActiveNoDelay(true);
+		SetDisableMovementInput(true);
+		CloseOtherMenus();
+		if(PlayerOwner.Pawn != None)
+			PlayerOwner.Pawn.StopFiring();
+		return;
+	}
     if ( RxPauseMenuMovie != none && RxPauseMenuMovie.bMovieIsOpen ) 
     {
 		
@@ -3322,6 +3398,11 @@ function TogglePauseMenu()
  */
 function CompletePauseMenuClose()
 {
+	if(CanvasPauseMenu != None && CanvasPauseMenu.bEnabled)
+	{
+		CloseCanvasPauseMenu();
+		return;
+	}
     PlayerOwner.SetPause(False);
     FadeScreenClose();
 	if (RxPauseMenuMovie.bMovieIsOpen) {
@@ -3367,6 +3448,17 @@ exec function startchat()
 		else
 			HudMovie.startchat();
 	}
+}
+
+function CloseCanvasPauseMenu()
+{
+	if(CanvasPauseMenu == None)
+		return;
+	CanvasPauseMenu.bEnabled = false;
+	PlayerOwner.SetPause(false);
+	SetVisible(true);
+	SetDisableMovementInput(false);
+	SetInputCursorActiveNoDelay(false);
 }
 
 //start team chat (nBab)
@@ -3591,6 +3683,10 @@ function OnClick(int x, int y,name Key)
 			PTMovieCanvas.checkForRightClick(x,y);
 		}
 	}
+	if(CanvasFrontEnd != none && IsMainMenu() && Key == 'LeftMouseButton')
+		CanvasFrontEnd.checkForLeftClick(x,y);
+	if(CanvasPauseMenu != none && CanvasPauseMenu.bEnabled && Key == 'LeftMouseButton')
+		CanvasPauseMenu.HandleLeftClick(x,y);
 }
 
 function OnClickRelease(int x, int y,name Key)
@@ -3615,6 +3711,10 @@ function OnKeyPress(name key)
 {
 	if(PTMovieCanvas!=none && PTMovieCanvas.bEnabled)
 		PTMovieCanvas.OnKeyPress(key);
+	if(CanvasFrontEnd != none && IsMainMenu())
+		CanvasFrontEnd.OnKeyPress(key);
+	if(CanvasPauseMenu != none && CanvasPauseMenu.bEnabled)
+		CanvasPauseMenu.OnKeyPress(key);
 }
 
 function OnScroll(float Amount)
@@ -3678,6 +3778,10 @@ function UpdateComponentCursorPosition()
 
 	if(PTMovieCanvas != none)
 		PTMovieCanvas.UpdateCursorPosition(cursorPosition.x,cursorPosition.y);
+	if(CanvasFrontEnd != none)
+		CanvasFrontEnd.UpdateCursorPosition(cursorPosition.x,cursorPosition.y);
+	if(CanvasPauseMenu != none)
+		CanvasPauseMenu.UpdateCursorPosition(cursorPosition.x,cursorPosition.y);
 }
 
 function AddWhisperingPawn(Rx_Pawn NewPawn, float Duration)
